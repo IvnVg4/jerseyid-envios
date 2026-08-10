@@ -1,0 +1,59 @@
+{
+  "name": "jerseyid-envios",
+  "productName": "JerseyID Envíos",
+  "version": "1.0.0",
+  "description": "App de escritorio para gestionar seguimientos de envíos de JerseyID",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently -k \"npm:dev\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "release": "npm run build && electron-builder --publish always"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "firebase": "^11.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.jerseyid.envios",
+    "productName": "JerseyID Envíos",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "IvnVg4",
+      "repo": "jerseyid-envios"
+    }
+  },
+  "allowScripts": {
+    "@firebase/util@1.12.1": true,
+    "electron@33.4.11": true,
+    "esbuild@0.21.5": true,
+    "protobufjs@7.6.5": true
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}
