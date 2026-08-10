@@ -34,17 +34,49 @@ npm run electron:build
 
 El instalador queda en la carpeta `release/`.
 
-## 5. Publicar una actualización (auto-update)
+## 5. Hacer un cambio de código (día a día)
+
+1. Abre la carpeta del proyecto en un editor (recomendado [VS Code](https://code.visualstudio.com/)):
+   ```powershell
+   cd "c:\Users\Ivanv\Documents\Proyectos\APPenvios"
+   code .
+   ```
+2. Busca el archivo que quieras tocar. Casi todo lo visual está en `src/components/` (ej. [`ShipmentForm.tsx`](src/components/ShipmentForm.tsx) es el formulario para crear/editar un envío, [`ShipmentCard.tsx`](src/components/ShipmentCard.tsx) es la tarjeta que se ve en la lista).
+3. Guarda el archivo y prueba el cambio en vivo antes de publicarlo:
+   ```powershell
+   npm run electron:dev
+   ```
+4. Cuando estés conforme, sube el cambio a GitHub:
+   ```powershell
+   git add -A
+   git commit -m "Descripción corta del cambio"
+   git push origin master
+   ```
+   Este paso por sí solo **no** actualiza la app de nadie — solo guarda el código en GitHub. Para que tu socia (o cualquiera con la app instalada) reciba el cambio, sigue con el paso 6.
+
+## 6. Publicar una actualización (auto-update)
 
 La app usa `electron-updater` + GitHub Releases para auto-actualizarse. Cada vez que quieras publicar un cambio:
 
-1. Sube la versión en `package.json` (ej. `"version": "1.0.1"`).
-2. Corre:
-   ```bash
+1. Sube la versión en `package.json` (ej. de `"1.0.3"` a `"1.0.4"`) y súbelo a git:
+   ```powershell
+   git add package.json
+   git commit -m "Bump version to 1.0.4"
+   git push origin master
+   ```
+2. Necesitas un token de GitHub con permiso de escritura sobre el repo:
+   - Ve a https://github.com/settings/personal-access-tokens → **Generate new token**.
+   - En **Repository access** elige **"Only select repositories"** y selecciona `jerseyid-envios` (con "Public repositories" NO funciona, es solo lectura).
+   - En **Permissions → Repository permissions**, agrega **Contents: Read and write**.
+   - Genera el token y cópialo (empieza con `github_pat_...`, solo se muestra una vez).
+3. Corre en PowerShell, dentro de la carpeta del proyecto:
+   ```powershell
+   $env:GH_TOKEN = "tu_token_aqui"
    npm run release
    ```
-   Esto compila, genera el instalador y lo publica como un GitHub Release (necesita la variable de entorno `GH_TOKEN` con un token de GitHub con permiso `repo`).
-3. Cualquier computadora que ya tenga la app instalada (con el instalador, no la carpeta portable) va a detectar la actualización sola la próxima vez que la abra (o cada hora si la deja abierta) y se va a actualizar sin que nadie tenga que hacer nada manual.
+   Esto compila, genera el instalador y lo publica como un GitHub Release en https://github.com/IvnVg4/jerseyid-envios/releases.
+4. Por seguridad, cuando termines revoca el token en https://github.com/settings/personal-access-tokens (sobre todo si lo compartiste con alguien o lo pegaste en un chat).
+5. Cualquier computadora que ya tenga la app instalada (con el instalador, no la carpeta portable) va a detectar la actualización sola la próxima vez que la abra (o cada hora si la deja abierta) y se va a actualizar sin que nadie tenga que hacer nada manual.
 
 La primera instalación en cada computadora nueva sí es manual: comparte el instalador (`JerseyID Envíos Setup X.X.X.exe`) una vez, y de ahí en adelante se actualiza sola.
 

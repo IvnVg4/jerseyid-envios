@@ -156,7 +156,7 @@ export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
           <input
             value={form.destination}
             onChange={(e) => setForm((f) => ({ ...f, destination: e.target.value }))}
-            placeholder="Ej. Caracas, Venezuela"
+            placeholder="Ej. Atlanta o España"
           />
         </label>
 
