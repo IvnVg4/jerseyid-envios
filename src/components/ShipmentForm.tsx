@@ -18,6 +18,7 @@ const EMPTY: ShipmentInput = {
   provider: "",
   trackingNumber: "",
   trackingLink: "",
+  destination: "",
   status: "Pendiente de envío",
   notes: "",
   images: []
@@ -147,6 +148,15 @@ export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
             value={form.trackingLink}
             onChange={(e) => setForm((f) => ({ ...f, trackingLink: e.target.value }))}
             placeholder="https://..."
+          />
+        </label>
+
+        <label>
+          Destino
+          <input
+            value={form.destination}
+            onChange={(e) => setForm((f) => ({ ...f, destination: e.target.value }))}
+            placeholder="Ej. Caracas, Venezuela"
           />
         </label>
 

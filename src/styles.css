@@ -289,6 +289,11 @@ label {
   font-family: "Consolas", monospace;
 }
 
+.shipment-destination {
+  font-size: 0.83rem;
+  color: var(--text-muted);
+}
+
 .shipment-notes {
   font-size: 0.83rem;
   color: var(--text-muted);

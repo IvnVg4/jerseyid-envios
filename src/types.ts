@@ -16,6 +16,7 @@ export interface Shipment {
   provider: string;
   trackingNumber: string;
   trackingLink: string;
+  destination: string;
   status: ShipmentStatus;
   notes: string;
   images: string[];

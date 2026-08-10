@@ -34,6 +34,7 @@ export function subscribeToShipments(
           provider: data.provider ?? "",
           trackingNumber: data.trackingNumber ?? "",
           trackingLink: data.trackingLink ?? "",
+          destination: data.destination ?? "",
           status: data.status ?? "Pendiente de envío",
           notes: data.notes ?? "",
           images: data.images ?? (data.imageBase64 ? [data.imageBase64] : []),

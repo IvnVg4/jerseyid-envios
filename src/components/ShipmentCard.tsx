@@ -29,6 +29,10 @@ export default function ShipmentCard({ shipment, onEdit, onDelete }: Props) {
 
         <div className="shipment-tracking">#{shipment.trackingNumber}</div>
 
+        {shipment.destination && (
+          <div className="shipment-destination">Destino: {shipment.destination}</div>
+        )}
+
         {shipment.notes && <p className="shipment-notes">{shipment.notes}</p>}
 
         <div className="shipment-actions">
