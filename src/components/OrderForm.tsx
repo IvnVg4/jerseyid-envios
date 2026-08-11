@@ -9,6 +9,7 @@ import {
   OrderLineStatus,
   OrderShippingAddress,
   Product,
+  ProductSize,
   Shipment
 } from "../types";
 import OrderLineStatusBadge from "./OrderLineStatusBadge";
@@ -33,32 +34,45 @@ const EMPTY: OrderInput = {
 };
 
 function productLabel(product: Product) {
-  const attrs = [product.type, product.size ? `Talla ${product.size}` : null, product.sleeve, product.version]
-    .filter(Boolean)
-    .join(" · ");
+  const attrs = [product.type, product.sleeve, product.version].filter(Boolean).join(" · ");
   return `${product.name} (${attrs})`;
 }
 
-/** Piezas que el producto todavía puede ofrecer para este pedido: lo disponible ahora,
- * más lo que este mismo pedido ya tenía reservado originalmente (se puede reasignar),
- * menos lo que el borrador actual ya está pidiendo. */
-function availableQuantity(product: Product, initialLines: OrderLine[], draftLines: OrderLine[]): number {
-  if (product.stockStatus === "En stock") {
+/** Una línea vieja (previa a que las tallas se unieran en un solo producto) puede no
+ * traer `size`; para un producto de una sola variante eso sigue siendo esa variante. */
+function lineMatchesVariant(line: OrderLine, product: Product, size: string): boolean {
+  if (line.productId !== product.id) return false;
+  if (line.size === size) return true;
+  return !line.size && product.variants.length === 1;
+}
+
+/** Piezas que esa talla del producto todavía puede ofrecer para este pedido: lo
+ * disponible ahora, más lo que este mismo pedido ya tenía reservado originalmente
+ * (se puede reasignar), menos lo que el borrador actual ya está pidiendo. */
+function availableQuantity(
+  product: Product,
+  size: string,
+  initialLines: OrderLine[],
+  draftLines: OrderLine[]
+): number {
+  const variant = product.variants.find((v) => v.size === size);
+  if (!variant) return 0;
+  if (variant.stockStatus === "En stock") {
     const givenBack = initialLines
-      .filter((l) => l.productId === product.id && l.status === "Vendida")
+      .filter((l) => lineMatchesVariant(l, product, size) && l.status === "Vendida")
       .reduce((sum, l) => sum + l.quantity, 0);
     const drafted = draftLines
-      .filter((l) => l.productId === product.id && l.status === "Vendida")
+      .filter((l) => lineMatchesVariant(l, product, size) && l.status === "Vendida")
       .reduce((sum, l) => sum + l.quantity, 0);
-    return product.quantity + givenBack - drafted;
+    return variant.quantity + givenBack - drafted;
   }
-  if (product.stockStatus === "En camino" && product.incoming) {
-    const pool = product.incoming.quantity - product.incoming.reserved;
+  if (variant.stockStatus === "En camino" && variant.incoming) {
+    const pool = variant.incoming.quantity - variant.incoming.reserved;
     const givenBack = initialLines
-      .filter((l) => l.productId === product.id && l.status === "Bajo pedido")
+      .filter((l) => lineMatchesVariant(l, product, size) && l.status === "Bajo pedido")
       .reduce((sum, l) => sum + l.quantity, 0);
     const drafted = draftLines
-      .filter((l) => l.productId === product.id && l.status === "Bajo pedido")
+      .filter((l) => lineMatchesVariant(l, product, size) && l.status === "Bajo pedido")
       .reduce((sum, l) => sum + l.quantity, 0);
     return pool + givenBack - drafted;
   }
@@ -68,6 +82,7 @@ function availableQuantity(product: Product, initialLines: OrderLine[], draftLin
 export default function OrderForm({ initial, products, shipments, onCancel, onSave }: Props) {
   const [form, setForm] = useState<OrderInput>(EMPTY);
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedSize, setSelectedSize] = useState<ProductSize | "">("");
   const [lineQuantity, setLineQuantity] = useState(1);
   const [lineUnitPrice, setLineUnitPrice] = useState(0);
   const [lineCustomName, setLineCustomName] = useState("");
@@ -86,10 +101,18 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
     }
   }, [initial]);
 
-  const sellableProducts = products.filter(
-    (p) => p.stockStatus !== "Agotado" && availableQuantity(p, initialLines, form.lines) > 0
+  const sellableProducts = products.filter((p) =>
+    p.variants.some((v) => availableQuantity(p, v.size, initialLines, form.lines) > 0)
   );
   const selectedProduct = products.find((p) => p.id === selectedProductId);
+  const needsSizePick = !!selectedProduct && selectedProduct.variants.some((v) => v.size !== "");
+  const availableSizes = selectedProduct
+    ? selectedProduct.variants.filter(
+        (v) => availableQuantity(selectedProduct, v.size, initialLines, form.lines) > 0
+      )
+    : [];
+  const matchingPersonalizedUnits =
+    selectedProduct?.personalizedUnits.filter((u) => u.size === selectedSize) ?? [];
 
   function addLine() {
     setError(null);
@@ -98,22 +121,34 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
       setError("Elige un producto.");
       return;
     }
+    const productNeedsSize = product.variants.some((v) => v.size !== "");
+    if (productNeedsSize && !selectedSize) {
+      setError("Elige una talla.");
+      return;
+    }
+    const size = productNeedsSize ? selectedSize : "";
     if (lineQuantity < 1) {
       setError("La cantidad debe ser al menos 1.");
       return;
     }
-    const available = availableQuantity(product, initialLines, form.lines);
+    const available = availableQuantity(product, size, initialLines, form.lines);
     if (lineQuantity > available) {
-      setError(`Solo hay ${available} pieza(s) disponible(s) de "${product.name}".`);
+      setError(
+        `Solo hay ${available} pieza(s) disponible(s)${size ? ` de la talla ${size}` : ""} de "${product.name}".`
+      );
       return;
     }
 
-    const status: OrderLineStatus = product.stockStatus === "En stock" ? "Vendida" : "Bajo pedido";
-    const shipmentId = status === "Bajo pedido" ? product.incoming?.shipmentId ?? null : null;
+    const variant =
+      product.variants.find((v) => v.size === size) ??
+      (product.variants.length === 1 ? product.variants[0] : undefined);
+    const status: OrderLineStatus = variant?.stockStatus === "En stock" ? "Vendida" : "Bajo pedido";
+    const shipmentId = status === "Bajo pedido" ? variant?.incoming?.shipmentId ?? null : null;
 
     const line: OrderLine = {
       productId: product.id,
       productName: product.name,
+      size,
       quantity: lineQuantity,
       status,
       shipmentId,
@@ -123,6 +158,7 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
     };
     setForm((f) => ({ ...f, lines: [...f.lines, line] }));
     setSelectedProductId("");
+    setSelectedSize("");
     setLineQuantity(1);
     setLineUnitPrice(0);
     setLineCustomName("");
@@ -326,22 +362,44 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
 
         <label>
           Productos del pedido *
-          <div className="tag-input-row">
+          <div className="tag-input-row product-picker-row">
             <select
+              className="product-picker-select"
               value={selectedProductId}
               onChange={(e) => {
                 const id = e.target.value;
+                const product = products.find((p) => p.id === id);
                 setSelectedProductId(id);
-                setLineUnitPrice(products.find((p) => p.id === id)?.price ?? 0);
+                setLineUnitPrice(product?.price ?? 0);
+                const firstAvailable = product?.variants.find(
+                  (v) => product && availableQuantity(product, v.size, initialLines, form.lines) > 0
+                );
+                setSelectedSize(firstAvailable?.size ?? "");
               }}
             >
               <option value="">Selecciona un producto...</option>
               {sellableProducts.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {productLabel(p)} — {availableQuantity(p, initialLines, form.lines)} disponible(s)
+                  {productLabel(p)}
                 </option>
               ))}
             </select>
+            {needsSizePick && (
+              <select
+                value={selectedSize}
+                onChange={(e) => setSelectedSize(e.target.value as ProductSize | "")}
+              >
+                <option value="" disabled>
+                  Talla...
+                </option>
+                {availableSizes.map((v) => (
+                  <option key={v.size} value={v.size}>
+                    {v.size} —{" "}
+                    {availableQuantity(selectedProduct!, v.size, initialLines, form.lines)} disp.
+                  </option>
+                ))}
+              </select>
+            )}
             <input
               type="number"
               min={1}
@@ -377,6 +435,24 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
               />
             </div>
           )}
+          {matchingPersonalizedUnits.length > 0 && (
+            <div className="tag-list">
+              <span className="field-hint">Piezas ya personalizadas disponibles:</span>
+              {matchingPersonalizedUnits.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  className="tag-chip tag-chip-static tag-chip-button"
+                  onClick={() => {
+                    setLineCustomName(u.customName);
+                    setLineCustomNumber(u.customNumber);
+                  }}
+                >
+                  {[u.customName, u.customNumber].filter(Boolean).join(" · ")}
+                </button>
+              ))}
+            </div>
+          )}
           {sellableProducts.length === 0 && (
             <span className="field-hint">
               No hay productos con stock disponible ni en camino para vender.
@@ -401,7 +477,9 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
                   </div>
                   <div className="order-line-info">
                     <span className="order-line-name">
-                      {line.quantity}× {line.productName} — ${(line.quantity * line.unitPrice).toLocaleString("es-MX")}
+                      {line.quantity}× {line.productName}
+                      {line.size ? ` (Talla ${line.size})` : ""} — $
+                      {(line.quantity * line.unitPrice).toLocaleString("es-MX")}
                     </span>
                     <div className="order-line-meta">
                       <OrderLineStatusBadge status={line.status} />

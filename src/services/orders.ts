@@ -11,7 +11,7 @@ import {
   writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Order, OrderInput, OrderLine, Product } from "../types";
+import type { Order, OrderInput, OrderLine, Product, ProductVariant } from "../types";
 
 const ORDERS = "orders";
 const PRODUCTS = "products";
@@ -40,6 +40,7 @@ export function subscribeToOrders(
           shippingAddress: data.shippingAddress ?? null,
           lines: (data.lines ?? []).map((line: OrderLine) => ({
             ...line,
+            size: line.size ?? "",
             unitPrice: line.unitPrice ?? 0,
             customName: line.customName ?? "",
             customNumber: line.customNumber ?? ""
@@ -55,28 +56,46 @@ export function subscribeToOrders(
   );
 }
 
-/** Cambio neto de `quantity` por producto entre dos listas de líneas (solo cuenta líneas "Vendida"). */
+function lineKey(line: OrderLine): string {
+  return `${line.productId}::${line.size ?? ""}`;
+}
+
+function splitKey(key: string): [productId: string, size: string] {
+  const sep = key.indexOf("::");
+  return [key.slice(0, sep), key.slice(sep + 2)];
+}
+
+/** Encuentra la variante (talla) correspondiente; si la línea no trae talla (pedidos
+ * viejos) y el producto solo tiene una variante, cae en esa por default. */
+function findVariantIndex(variants: ProductVariant[], size: string): number {
+  const idx = variants.findIndex((v) => v.size === size);
+  if (idx !== -1) return idx;
+  if (variants.length === 1) return 0;
+  return -1;
+}
+
+/** Cambio neto de cantidad por (producto, talla) entre dos listas de líneas (solo cuenta líneas "Vendida"). */
 function computeSoldDelta(oldLines: OrderLine[], newLines: OrderLine[]) {
   const delta = new Map<string, number>();
-  const add = (productId: string, n: number) => delta.set(productId, (delta.get(productId) ?? 0) + n);
+  const add = (key: string, n: number) => delta.set(key, (delta.get(key) ?? 0) + n);
   for (const line of oldLines) {
-    if (line.status === "Vendida") add(line.productId, line.quantity);
+    if (line.status === "Vendida") add(lineKey(line), line.quantity);
   }
   for (const line of newLines) {
-    if (line.status === "Vendida") add(line.productId, -line.quantity);
+    if (line.status === "Vendida") add(lineKey(line), -line.quantity);
   }
   return delta;
 }
 
-/** Cambio neto de `incoming.reserved` por producto entre dos listas de líneas (solo cuenta líneas "Bajo pedido"). */
+/** Cambio neto de `incoming.reserved` por (producto, talla) entre dos listas de líneas (solo cuenta líneas "Bajo pedido"). */
 function computeReservedDelta(oldLines: OrderLine[], newLines: OrderLine[]) {
   const delta = new Map<string, number>();
-  const add = (productId: string, n: number) => delta.set(productId, (delta.get(productId) ?? 0) + n);
+  const add = (key: string, n: number) => delta.set(key, (delta.get(key) ?? 0) + n);
   for (const line of oldLines) {
-    if (line.status === "Bajo pedido") add(line.productId, -line.quantity);
+    if (line.status === "Bajo pedido") add(lineKey(line), -line.quantity);
   }
   for (const line of newLines) {
-    if (line.status === "Bajo pedido") add(line.productId, line.quantity);
+    if (line.status === "Bajo pedido") add(lineKey(line), line.quantity);
   }
   return delta;
 }
@@ -87,36 +106,63 @@ function applyProductDeltas(
   soldDelta: Map<string, number>,
   reservedDelta: Map<string, number>
 ) {
-  const productIds = new Set([...soldDelta.keys(), ...reservedDelta.keys()]);
-  for (const productId of productIds) {
+  const perProduct = new Map<string, Map<string, { sold: number; reserved: number }>>();
+  const collect = (map: Map<string, number>, field: "sold" | "reserved") => {
+    for (const [key, value] of map) {
+      if (value === 0) continue;
+      const [productId, size] = splitKey(key);
+      if (!perProduct.has(productId)) perProduct.set(productId, new Map());
+      const sizes = perProduct.get(productId)!;
+      const entry = sizes.get(size) ?? { sold: 0, reserved: 0 };
+      entry[field] += value;
+      sizes.set(size, entry);
+    }
+  };
+  collect(soldDelta, "sold");
+  collect(reservedDelta, "reserved");
+
+  for (const [productId, sizeDeltas] of perProduct) {
     const product = products.find((p) => p.id === productId);
     if (!product) continue; // producto eliminado: no hay nada que ajustar
 
-    const soldChange = soldDelta.get(productId) ?? 0;
-    const reservedChange = reservedDelta.get(productId) ?? 0;
-    const update: Record<string, unknown> = { updatedAt: serverTimestamp() };
-
-    if (soldChange !== 0) {
-      const newQuantity = product.quantity + soldChange;
-      if (newQuantity < 0) {
-        throw new Error(`Stock insuficiente de "${product.name}".`);
+    const variants = product.variants.map((v) => ({ ...v }));
+    for (const [size, { sold, reserved }] of sizeDeltas) {
+      const idx = findVariantIndex(variants, size);
+      if (idx === -1) {
+        throw new Error(`"${product.name}" ya no tiene la talla "${size || "única"}".`);
       }
-      update.quantity = newQuantity;
-      update.stockStatus = newQuantity > 0 ? "En stock" : "Agotado";
+      const variant = variants[idx];
+
+      if (sold !== 0) {
+        const newQuantity = variant.quantity + sold;
+        if (newQuantity < 0) {
+          throw new Error(
+            `Stock insuficiente de "${product.name}"${size ? ` talla ${size}` : ""}.`
+          );
+        }
+        variant.quantity = newQuantity;
+        variant.stockStatus = newQuantity > 0 ? "En stock" : "Agotado";
+      }
+
+      if (reserved !== 0) {
+        if (!variant.incoming) {
+          throw new Error(
+            `"${product.name}"${size ? ` talla ${size}` : ""} ya no tiene un lote en camino.`
+          );
+        }
+        const newReserved = variant.incoming.reserved + reserved;
+        if (newReserved < 0 || newReserved > variant.incoming.quantity) {
+          throw new Error(
+            `No quedan piezas disponibles del lote en camino de "${product.name}"${
+              size ? ` talla ${size}` : ""
+            }.`
+          );
+        }
+        variant.incoming = { ...variant.incoming, reserved: newReserved };
+      }
     }
 
-    if (reservedChange !== 0) {
-      if (!product.incoming) {
-        throw new Error(`"${product.name}" ya no tiene un lote en camino.`);
-      }
-      const newReserved = product.incoming.reserved + reservedChange;
-      if (newReserved < 0 || newReserved > product.incoming.quantity) {
-        throw new Error(`No quedan piezas disponibles del lote en camino de "${product.name}".`);
-      }
-      update.incoming = { ...product.incoming, reserved: newReserved };
-    }
-
-    batch.update(doc(db, PRODUCTS, productId), update);
+    batch.update(doc(db, PRODUCTS, productId), { variants, updatedAt: serverTimestamp() });
   }
 }
 

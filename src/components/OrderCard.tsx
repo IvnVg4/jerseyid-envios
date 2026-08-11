@@ -23,22 +23,28 @@ export default function OrderCard({
   onRemoveLine
 }: Props) {
   const orderTotal = order.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
-  const hasPendingDelivery = order.lines.some((l) => l.status !== "Entregado");
+  const deliveredCount = order.lines.filter((l) => l.status === "Entregado").length;
+  const hasPendingDelivery = deliveredCount < order.lines.length;
+  const balance = orderTotal - order.depositAmount;
   const address = order.shippingAddress;
 
   return (
     <div className="order-card">
       <div className="shipment-body">
-        <div className="shipment-header">
-          <h3>{order.customerName}</h3>
-          {order.hasDeposit && (
-            <span className="type-badge">Anticipo ${order.depositAmount}</span>
-          )}
+        <div className="order-card-header">
+          <div>
+            <h3>{order.customerName}</h3>
+            <div className="shipment-tracking">{order.customerPhone}</div>
+          </div>
+          <span className={hasPendingDelivery ? "progress-pill" : "progress-pill progress-done"}>
+            {deliveredCount}/{order.lines.length} entregado{order.lines.length === 1 ? "" : "s"}
+          </span>
         </div>
 
-        <div className="shipment-tracking">{order.customerPhone}</div>
-
-        <span className="type-badge">{order.fulfillmentType}</span>
+        <div className="order-card-badges">
+          <span className="type-badge">{order.fulfillmentType}</span>
+          {order.hasDeposit && <span className="type-badge">Anticipo ${order.depositAmount}</span>}
+        </div>
 
         {address && (
           <div className="shipment-destination">
@@ -66,13 +72,17 @@ export default function OrderCard({
                 </div>
                 <div className="order-line-info">
                   <span className="order-line-name">
-                    {line.quantity}× {line.productName} — ${(line.quantity * line.unitPrice).toLocaleString("es-MX")}
+                    {line.quantity}× {line.productName}
+                    {line.size ? ` (Talla ${line.size})` : ""}
                   </span>
                   <div className="order-line-meta">
                     <OrderLineStatusBadge status={line.status} />
                     {shipment && <span className="attr-chip">vía envío #{shipment.trackingNumber}</span>}
                     {personalization && <span className="attr-chip">{personalization}</span>}
                   </div>
+                </div>
+                <div className="order-line-price">
+                  ${(line.quantity * line.unitPrice).toLocaleString("es-MX")}
                 </div>
                 <div className="order-line-actions">
                   {line.status === "Bajo pedido" && (
@@ -101,12 +111,22 @@ export default function OrderCard({
           })}
         </div>
 
-        <div className="order-total-row">
-          <span>Total: ${orderTotal.toLocaleString("es-MX")}</span>
+        <div className="order-summary">
+          <div className="order-summary-row order-summary-total">
+            <span>Total</span>
+            <span>${orderTotal.toLocaleString("es-MX")}</span>
+          </div>
           {order.hasDeposit && (
-            <span className="field-hint">
-              Saldo pendiente: ${(orderTotal - order.depositAmount).toLocaleString("es-MX")}
-            </span>
+            <>
+              <div className="order-summary-row">
+                <span>Anticipo</span>
+                <span>${order.depositAmount.toLocaleString("es-MX")}</span>
+              </div>
+              <div className="order-summary-row order-summary-balance">
+                <span>Saldo pendiente</span>
+                <span>${balance.toLocaleString("es-MX")}</span>
+              </div>
+            </>
           )}
         </div>
 

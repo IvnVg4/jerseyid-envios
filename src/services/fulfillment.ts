@@ -18,20 +18,28 @@ export async function applyShipmentDelivery(
   let hasWrites = false;
 
   for (const product of products) {
-    if (product.stockStatus === "En camino" && product.incoming?.shipmentId === shipment.id) {
+    const matchesShipment = product.variants.some(
+      (v) => v.stockStatus === "En camino" && v.incoming?.shipmentId === shipment.id
+    );
+    if (!matchesShipment) continue;
+
+    const variants = product.variants.map((v) => {
+      if (v.stockStatus !== "En camino" || v.incoming?.shipmentId !== shipment.id) return v;
       // Las piezas ya "reserved" por líneas "Bajo pedido" no se suman al stock
       // general: se van directo al cliente de ese pedido (sus líneas se marcan
       // abajo), no quedan disponibles para vender de nuevo.
-      const unreserved = Math.max(0, product.incoming.quantity - product.incoming.reserved);
-      const newQuantity = product.quantity + unreserved;
-      batch.update(doc(db, "products", product.id), {
+      const unreserved = Math.max(0, v.incoming.quantity - v.incoming.reserved);
+      const newQuantity = v.quantity + unreserved;
+      return {
+        ...v,
         quantity: newQuantity,
-        stockStatus: newQuantity > 0 ? "En stock" : "Agotado",
-        incoming: null,
-        updatedAt: serverTimestamp()
-      });
-      hasWrites = true;
-    }
+        stockStatus: newQuantity > 0 ? ("En stock" as const) : ("Agotado" as const),
+        incoming: null
+      };
+    });
+
+    batch.update(doc(db, "products", product.id), { variants, updatedAt: serverTimestamp() });
+    hasWrites = true;
   }
 
   for (const order of orders) {

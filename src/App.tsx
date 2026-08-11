@@ -8,6 +8,8 @@ import {
   OrderInput,
   Product,
   ProductInput,
+  Provider,
+  ProviderInput,
   SHIPMENT_STATUSES,
   Shipment,
   ShipmentInput,
@@ -42,6 +44,12 @@ import {
   subscribeToCategories,
   updateCategory
 } from "./services/categories";
+import {
+  createProvider,
+  deleteProvider,
+  subscribeToProviders,
+  updateProvider
+} from "./services/providers";
 import { applyShipmentDelivery } from "./services/fulfillment";
 import Login from "./components/Login";
 import ShipmentCard from "./components/ShipmentCard";
@@ -51,11 +59,14 @@ import ProductForm from "./components/ProductForm";
 import OrderCard from "./components/OrderCard";
 import OrderForm from "./components/OrderForm";
 import CategoryManager from "./components/CategoryManager";
+import ProviderCard from "./components/ProviderCard";
+import ProviderForm from "./components/ProviderForm";
+import SalesView from "./components/SalesView";
 import ConfirmDialog from "./components/ConfirmDialog";
 
 type StatusFilter = "Todos" | ShipmentStatus;
 type ProductTypeFilter = "Todos" | string;
-type View = "shipments" | "stock" | "orders" | "categories";
+type View = "shipments" | "stock" | "orders" | "providers" | "sales" | "categories";
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -84,6 +95,11 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryLoadError, setCategoryLoadError] = useState<string | null>(null);
   const seededCategories = useRef(false);
+
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerLoadError, setProviderLoadError] = useState<string | null>(null);
+  const [editingProvider, setEditingProvider] = useState<Provider | null | "new">(null);
+  const [pendingDeleteProvider, setPendingDeleteProvider] = useState<Provider | null>(null);
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -123,6 +139,12 @@ export default function App() {
       },
       (err) => setCategoryLoadError(err.message)
     );
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToProviders(setProviders, (err) => setProviderLoadError(err.message));
     return unsub;
   }, [user]);
 
@@ -206,13 +228,11 @@ export default function App() {
     setPendingDelete(null);
   }
 
-  async function handleSaveProduct(inputs: ProductInput[]) {
+  async function handleSaveProduct(input: ProductInput) {
     if (editingProduct && editingProduct !== "new") {
-      await updateProduct(editingProduct.id, inputs[0]);
+      await updateProduct(editingProduct.id, input);
     } else {
-      for (const input of inputs) {
-        await createProduct(input);
-      }
+      await createProduct(input);
     }
     setEditingProduct(null);
   }
@@ -267,6 +287,21 @@ export default function App() {
     }
   }
 
+  async function handleSaveProvider(input: ProviderInput) {
+    if (editingProvider && editingProvider !== "new") {
+      await updateProvider(editingProvider.id, input);
+    } else {
+      await createProvider(input);
+    }
+    setEditingProvider(null);
+  }
+
+  async function handleDeleteProviderConfirmed() {
+    if (!pendingDeleteProvider) return;
+    await deleteProvider(pendingDeleteProvider.id);
+    setPendingDeleteProvider(null);
+  }
+
   const countLabel =
     view === "shipments"
       ? filtered.length === shipments.length
@@ -280,6 +315,10 @@ export default function App() {
       ? filteredOrders.length === orders.length
         ? `${orders.length} pedido${orders.length === 1 ? "" : "s"}`
         : `${filteredOrders.length} de ${orders.length} pedidos`
+      : view === "providers"
+      ? `${providers.length} proveedor${providers.length === 1 ? "" : "es"}`
+      : view === "sales"
+      ? "Ventas"
       : `${categories.length} categoría${categories.length === 1 ? "" : "s"}`;
 
   return (
@@ -317,6 +356,18 @@ export default function App() {
           onClick={() => setView("orders")}
         >
           Pedidos
+        </button>
+        <button
+          className={view === "providers" ? "tab-active" : "tab"}
+          onClick={() => setView("providers")}
+        >
+          Proveedores
+        </button>
+        <button
+          className={view === "sales" ? "tab-active" : "tab"}
+          onClick={() => setView("sales")}
+        >
+          Ventas
         </button>
         <button
           className={view === "categories" ? "tab-active" : "tab"}
@@ -441,6 +492,7 @@ export default function App() {
               initial={editingProduct === "new" ? null : editingProduct}
               categories={categories}
               shipments={shipments}
+              providers={providers}
               onCancel={() => setEditingProduct(null)}
               onSave={handleSaveProduct}
             />
@@ -513,6 +565,53 @@ export default function App() {
           )}
         </>
       )}
+
+      {view === "providers" && (
+        <>
+          <div className="toolbar">
+            <div className="spacer" />
+            <button onClick={() => setEditingProvider("new")}>+ Nuevo proveedor</button>
+          </div>
+
+          {providerLoadError && <div className="auth-error page-error">{providerLoadError}</div>}
+
+          {providers.length === 0 ? (
+            <div className="empty-state">
+              Todavía no hay proveedores registrados. Crea el primero.
+            </div>
+          ) : (
+            <div className="shipment-grid">
+              {providers.map((p) => (
+                <ProviderCard
+                  key={p.id}
+                  provider={p}
+                  onEdit={() => setEditingProvider(p)}
+                  onDelete={() => setPendingDeleteProvider(p)}
+                />
+              ))}
+            </div>
+          )}
+
+          {editingProvider && (
+            <ProviderForm
+              initial={editingProvider === "new" ? null : editingProvider}
+              categories={categories}
+              onCancel={() => setEditingProvider(null)}
+              onSave={handleSaveProvider}
+            />
+          )}
+
+          {pendingDeleteProvider && (
+            <ConfirmDialog
+              message={`¿Eliminar el proveedor "${pendingDeleteProvider.name}"?`}
+              onConfirm={handleDeleteProviderConfirmed}
+              onCancel={() => setPendingDeleteProvider(null)}
+            />
+          )}
+        </>
+      )}
+
+      {view === "sales" && <SalesView orders={orders} products={products} providers={providers} />}
 
       {view === "categories" && (
         <>

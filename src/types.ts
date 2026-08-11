@@ -82,21 +82,45 @@ export interface ProductIncoming {
   reserved: number;
 }
 
+/** Una talla (o la única variante, si la categoría no usa tallas) dentro de un mismo producto/diseño. */
+export interface ProductVariant {
+  size: ProductSize | "";
+  stockStatus: ProductStockStatus;
+  quantity: number;
+  incoming: ProductIncoming | null;
+}
+
+/**
+ * Piezas ya personalizadas (nombre/número ya estampado) que llegaron como parte del
+ * stock normal del mismo diseño — ej. 10 jerseys en blanco + 1 idéntica pero con
+ * "Vini Jr · 7" ya impresa. Es solo una etiqueta informativa sobre piezas que ya
+ * están contadas dentro de `ProductVariant.quantity`; no lleva su propio conteo
+ * independiente (se ajusta a mano junto con la cantidad de la talla al venderse).
+ */
+export interface PersonalizedUnit {
+  id: string;
+  size: ProductSize | "";
+  customName: string;
+  customNumber: string;
+  quantity: number;
+}
+
 export interface Product {
   id: string;
   type: string;
   name: string;
-  size: ProductSize | "";
   sleeve: JerseySleeve | "";
   version: JerseyVersion | "";
   personalized: boolean;
   patches: string[];
-  quantity: number;
-  stockStatus: ProductStockStatus;
-  incoming: ProductIncoming | null;
   images: string[];
   /** Precio de venta unitario. */
   price: number;
+  /** Proveedor del que viene este diseño (para calcular costo/ganancia en Ventas). "" si no aplica. */
+  providerId: string;
+  /** Una entrada por talla; si la categoría no usa tallas, hay exactamente una con size "". */
+  variants: ProductVariant[];
+  personalizedUnits: PersonalizedUnit[];
   createdAt: number;
   updatedAt: number;
 }
@@ -116,6 +140,8 @@ export type OrderLineStatus = (typeof ORDER_LINE_STATUSES)[number];
 export interface OrderLine {
   productId: string;
   productName: string;
+  /** Talla vendida de ese producto. "" si la categoría no usa tallas. */
+  size: ProductSize | "";
   quantity: number;
   status: OrderLineStatus;
   shipmentId: string | null;
@@ -165,3 +191,27 @@ export interface Order {
 }
 
 export type OrderInput = Omit<Order, "id" | "createdAt" | "updatedAt">;
+
+// ---- Proveedores ----
+
+/**
+ * Precio (costo) que cobra un proveedor por un tipo de producto. `sleeve`/`version`
+ * solo aplican si la categoría es tipo jersey (isJerseyLike); si no, quedan "" y el
+ * precio aplica a toda la categoría.
+ */
+export interface ProviderPriceEntry {
+  categoryName: string;
+  sleeve: JerseySleeve | "";
+  version: JerseyVersion | "";
+  cost: number;
+}
+
+export interface Provider {
+  id: string;
+  name: string;
+  prices: ProviderPriceEntry[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ProviderInput = Omit<Provider, "id" | "createdAt" | "updatedAt">;

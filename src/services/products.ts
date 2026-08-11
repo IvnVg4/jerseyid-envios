@@ -11,12 +11,40 @@ import {
   updateDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Product, ProductInput } from "../types";
+import type { Product, ProductInput, ProductVariant } from "../types";
 
 const COLLECTION = "products";
 
 function toMillis(value: Timestamp | undefined): number {
   return value ? value.toMillis() : Date.now();
+}
+
+/**
+ * Productos guardados antes de que las tallas se unieran en `variants` traían
+ * `size`/`quantity`/`stockStatus`/`incoming` sueltos a nivel de producto. Los
+ * adaptamos al leerlos para no requerir una migración de datos aparte; en cuanto
+ * se vuelvan a guardar (editar el producto, o cualquier ajuste de stock) quedan
+ * en el formato nuevo.
+ */
+function normalizeVariants(data: Record<string, unknown>): ProductVariant[] {
+  if (Array.isArray(data.variants) && data.variants.length > 0) {
+    return data.variants.map((v: Partial<ProductVariant>) => ({
+      size: v.size ?? "",
+      stockStatus: v.stockStatus ?? "Agotado",
+      quantity: v.quantity ?? 0,
+      incoming: v.incoming ?? null
+    }));
+  }
+  return [
+    {
+      size: (data.size as ProductVariant["size"]) ?? "",
+      stockStatus:
+        (data.stockStatus as ProductVariant["stockStatus"]) ??
+        ((data.quantity as number) > 0 ? "En stock" : "Agotado"),
+      quantity: (data.quantity as number) ?? 0,
+      incoming: (data.incoming as ProductVariant["incoming"]) ?? null
+    }
+  ];
 }
 
 export function subscribeToProducts(
@@ -33,16 +61,15 @@ export function subscribeToProducts(
           id: docSnap.id,
           type: data.type ?? "Jersey",
           name: data.name ?? "",
-          size: data.size ?? "",
           sleeve: data.sleeve ?? "",
           version: data.version ?? "",
           personalized: data.personalized ?? false,
           patches: data.patches ?? [],
-          quantity: data.quantity ?? 0,
-          stockStatus: data.stockStatus ?? (data.quantity > 0 ? "En stock" : "Agotado"),
-          incoming: data.incoming ?? null,
           images: data.images ?? [],
           price: data.price ?? 0,
+          providerId: data.providerId ?? "",
+          variants: normalizeVariants(data),
+          personalizedUnits: data.personalizedUnits ?? [],
           createdAt: toMillis(data.createdAt),
           updatedAt: toMillis(data.updatedAt)
         };

@@ -13,7 +13,11 @@ interface Props {
 export default function ShipmentCard({ shipment, products, onEdit, onDelete }: Props) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const linkedProducts = products.filter((p) => p.incoming?.shipmentId === shipment.id);
+  const linkedVariants = products.flatMap((p) =>
+    p.variants
+      .filter((v) => v.incoming?.shipmentId === shipment.id)
+      .map((v) => ({ product: p, size: v.size, quantity: v.incoming!.quantity, reserved: v.incoming!.reserved }))
+  );
 
   return (
     <div className="shipment-card">
@@ -54,26 +58,24 @@ export default function ShipmentCard({ shipment, products, onEdit, onDelete }: P
 
         {shipment.notes && <p className="shipment-notes">{shipment.notes}</p>}
 
-        {linkedProducts.length > 0 && (
+        {linkedVariants.length > 0 && (
           <div className="shipment-details">
             <button
               type="button"
               className="link-button"
               onClick={() => setShowDetails((v) => !v)}
             >
-              {showDetails ? "Ocultar" : "Ver"} detalles del envío ({linkedProducts.length})
+              {showDetails ? "Ocultar" : "Ver"} detalles del envío ({linkedVariants.length})
             </button>
             {showDetails && (
               <div className="shipment-details-list">
-                {linkedProducts.map((p) => (
-                  <div key={p.id} className="shipment-details-row">
+                {linkedVariants.map(({ product, size, quantity, reserved }, i) => (
+                  <div key={`${product.id}-${size}-${i}`} className="shipment-details-row">
                     <span>
-                      {p.incoming?.quantity ?? 0}× {p.name}
-                      {p.size ? ` (Talla ${p.size})` : ""}
+                      {quantity}× {product.name}
+                      {size ? ` (Talla ${size})` : ""}
                     </span>
-                    {!!p.incoming?.reserved && (
-                      <span className="field-hint">{p.incoming.reserved} apartada(s)</span>
-                    )}
+                    {!!reserved && <span className="field-hint">{reserved} apartada(s)</span>}
                   </div>
                 ))}
               </div>

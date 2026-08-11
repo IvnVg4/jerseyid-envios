@@ -4,12 +4,15 @@ import {
   JERSEY_SLEEVES,
   JERSEY_VERSIONS,
   MAX_IMAGES_PER_PRODUCT,
+  PersonalizedUnit,
   PRODUCT_SIZES,
   PRODUCT_STOCK_STATUSES,
   Product,
   ProductInput,
   ProductSize,
   ProductStockStatus,
+  ProductVariant,
+  Provider,
   Shipment
 } from "../types";
 import { compressImageFile } from "../utils/imageCompression";
@@ -19,28 +22,44 @@ interface Props {
   initial?: Product | null;
   categories: Category[];
   shipments: Shipment[];
+  providers: Provider[];
   onCancel: () => void;
-  onSave: (inputs: ProductInput[]) => Promise<void>;
+  onSave: (input: ProductInput) => Promise<void>;
 }
 
-const EMPTY: ProductInput = {
+type FormState = Omit<ProductInput, "variants" | "personalizedUnits">;
+
+const EMPTY_FORM: FormState = {
   type: "",
   name: "",
-  size: "",
   sleeve: "",
   version: "",
   personalized: false,
   patches: [],
-  quantity: 1,
-  stockStatus: "En stock",
-  incoming: null,
   images: [],
-  price: 0
+  price: 0,
+  providerId: ""
 };
 
-export default function ProductForm({ initial, categories, shipments, onCancel, onSave }: Props) {
-  const [form, setForm] = useState<ProductInput>(EMPTY);
-  const [selectedSizes, setSelectedSizes] = useState<ProductSize[]>([]);
+function emptyVariant(size: ProductSize | ""): ProductVariant {
+  return { size, stockStatus: "En stock", quantity: 1, incoming: null };
+}
+
+export default function ProductForm({
+  initial,
+  categories,
+  shipments,
+  providers,
+  onCancel,
+  onSave
+}: Props) {
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [variants, setVariants] = useState<ProductVariant[]>([]);
+  const [personalizedUnits, setPersonalizedUnits] = useState<PersonalizedUnit[]>([]);
+  const [puSize, setPuSize] = useState<ProductSize | "">("");
+  const [puName, setPuName] = useState("");
+  const [puNumber, setPuNumber] = useState("");
+  const [puQty, setPuQty] = useState(1);
   const [patchInput, setPatchInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,12 +68,15 @@ export default function ProductForm({ initial, categories, shipments, onCancel, 
 
   useEffect(() => {
     if (initial) {
-      const { id, createdAt, updatedAt, ...rest } = initial;
+      const { id, createdAt, updatedAt, variants: v, personalizedUnits: pu, ...rest } = initial;
       setForm(rest);
+      setVariants(v);
+      setPersonalizedUnits(pu);
     } else {
-      setForm(EMPTY);
+      setForm(EMPTY_FORM);
+      setVariants([]);
+      setPersonalizedUnits([]);
     }
-    setSelectedSizes([]);
   }, [initial]);
 
   const parentCategories = categories
@@ -70,18 +92,6 @@ export default function ProductForm({ initial, categories, shipments, onCancel, 
     (s) => s.origin === "Fábrica" && s.status !== "Entregado"
   );
 
-  function handleStockStatusChange(stockStatus: ProductStockStatus) {
-    setForm((f) => ({
-      ...f,
-      stockStatus,
-      quantity: stockStatus === "En stock" ? f.quantity || 1 : 0,
-      incoming:
-        stockStatus === "En camino"
-          ? f.incoming ?? { shipmentId: "", quantity: 1, reserved: 0 }
-          : null
-    }));
-  }
-
   function handleTypeChange(typeName: string) {
     const category = categories.find((c) => c.name === typeName);
     const nextIsJersey = category?.isJerseyLike ?? false;
@@ -89,18 +99,52 @@ export default function ProductForm({ initial, categories, shipments, onCancel, 
     setForm((f) => ({
       ...f,
       type: typeName,
-      size: nextNeedsSize ? f.size : "",
       sleeve: nextIsJersey ? f.sleeve : "",
       version: nextIsJersey ? f.version : "",
       personalized: nextIsJersey ? f.personalized : false,
       patches: nextIsJersey ? f.patches : []
     }));
-    setSelectedSizes([]);
+    if (!nextNeedsSize) {
+      const totalQuantity = variants.reduce(
+        (sum, v) => sum + (v.stockStatus === "En stock" ? v.quantity : 0),
+        0
+      );
+      setVariants([
+        {
+          size: "",
+          stockStatus: totalQuantity > 0 ? "En stock" : "Agotado",
+          quantity: totalQuantity || 1,
+          incoming: null
+        }
+      ]);
+      setPersonalizedUnits([]);
+    } else if (variants.some((v) => v.size === "")) {
+      setVariants([]);
+    }
   }
 
   function toggleSize(size: ProductSize) {
-    setSelectedSizes((sizes) =>
-      sizes.includes(size) ? sizes.filter((s) => s !== size) : [...sizes, size]
+    setVariants((vs) =>
+      vs.some((v) => v.size === size) ? vs.filter((v) => v.size !== size) : [...vs, emptyVariant(size)]
+    );
+  }
+
+  function updateVariant(index: number, patch: Partial<ProductVariant>) {
+    setVariants((vs) => vs.map((v, i) => (i === index ? { ...v, ...patch } : v)));
+  }
+
+  function setVariantStockStatus(index: number, stockStatus: ProductStockStatus) {
+    setVariants((vs) =>
+      vs.map((v, i) => {
+        if (i !== index) return v;
+        return {
+          ...v,
+          stockStatus,
+          quantity: stockStatus === "En stock" ? v.quantity || 1 : 0,
+          incoming:
+            stockStatus === "En camino" ? v.incoming ?? { shipmentId: "", quantity: 1, reserved: 0 } : null
+        };
+      })
     );
   }
 
@@ -120,6 +164,48 @@ export default function ProductForm({ initial, categories, shipments, onCancel, 
 
   function removePatch(index: number) {
     setForm((f) => ({ ...f, patches: f.patches.filter((_, i) => i !== index) }));
+  }
+
+  function addPersonalizedUnit() {
+    setError(null);
+    if (!puName.trim() && !puNumber.trim()) {
+      setError("Indica al menos el nombre o el número de la pieza personalizada.");
+      return;
+    }
+    if (needsSize && !puSize) {
+      setError("Elige la talla de la pieza personalizada.");
+      return;
+    }
+    if (puQty < 1) {
+      setError("La cantidad de la pieza personalizada debe ser al menos 1.");
+      return;
+    }
+    const size = needsSize ? puSize : "";
+    setPersonalizedUnits((units) => [
+      ...units,
+      {
+        id: crypto.randomUUID(),
+        size,
+        customName: puName.trim(),
+        customNumber: puNumber.trim(),
+        quantity: puQty
+      }
+    ]);
+    setVariants((vs) => {
+      const idx = vs.findIndex((v) => v.size === size);
+      if (idx === -1) return [...vs, { size, stockStatus: "En stock", quantity: puQty, incoming: null }];
+      return vs.map((v, i) =>
+        i === idx ? { ...v, quantity: v.quantity + puQty, stockStatus: "En stock" } : v
+      );
+    });
+    setPuSize("");
+    setPuName("");
+    setPuNumber("");
+    setPuQty(1);
+  }
+
+  function removePersonalizedUnit(id: string) {
+    setPersonalizedUnits((units) => units.filter((u) => u.id !== id));
   }
 
   async function handleImagesChange(files: FileList | null) {
@@ -156,45 +242,39 @@ export default function ProductForm({ initial, categories, shipments, onCancel, 
       setError("Para jerseys, elige el tipo de manga y la versión.");
       return;
     }
-    if (needsSize && !initial && selectedSizes.length === 0) {
-      setError("Elige al menos una talla.");
-      return;
-    }
-    if (needsSize && initial && !form.size) {
-      setError("Elige una talla.");
-      return;
-    }
     if (!form.price || form.price <= 0) {
       setError("Indica el precio de venta.");
       return;
     }
-    if (form.stockStatus === "En stock" && form.quantity < 1) {
-      setError("Indica cuántas piezas hay en stock.");
+    if (needsSize && variants.length === 0) {
+      setError("Elige al menos una talla.");
       return;
     }
-    if (form.stockStatus === "En camino") {
-      if (!form.incoming?.shipmentId) {
-        setError("Elige en qué envío vienen las piezas.");
+    for (const v of variants) {
+      const label = v.size ? ` (talla ${v.size})` : "";
+      if (v.stockStatus === "En stock" && v.quantity < 1) {
+        setError(`Indica cuántas piezas hay en stock${label}.`);
         return;
       }
-      if (!form.incoming.quantity || form.incoming.quantity < 1) {
-        setError("Indica cuántas piezas vienen en camino.");
-        return;
-      }
-      if (form.incoming.reserved > form.incoming.quantity) {
-        setError(
-          "Ya hay pedidos apartando más piezas de las que estás dejando en este lote."
-        );
-        return;
+      if (v.stockStatus === "En camino") {
+        if (!v.incoming?.shipmentId) {
+          setError(`Elige en qué envío vienen las piezas${label}.`);
+          return;
+        }
+        if (!v.incoming.quantity || v.incoming.quantity < 1) {
+          setError(`Indica cuántas piezas vienen en camino${label}.`);
+          return;
+        }
+        if (v.incoming.reserved > v.incoming.quantity) {
+          setError(`Ya hay pedidos apartando más piezas de las que estás dejando en el lote${label}.`);
+          return;
+        }
       }
     }
     setSaving(true);
     try {
-      const inputs: ProductInput[] =
-        needsSize && !initial && selectedSizes.length > 0
-          ? selectedSizes.map((size) => ({ ...form, size }))
-          : [form];
-      await onSave(inputs);
+      const input: ProductInput = { ...form, variants, personalizedUnits };
+      await onSave(input);
     } catch {
       setError("No se pudo guardar el producto. Revisa tu conexión.");
     } finally {
@@ -308,6 +388,22 @@ export default function ProductForm({ initial, categories, shipments, onCancel, 
           />
         </label>
 
+        <label>
+          Proveedor
+          <select
+            value={form.providerId}
+            onChange={(e) => setForm((f) => ({ ...f, providerId: e.target.value }))}
+          >
+            <option value="">Sin proveedor</option>
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">Se usa para calcular el costo y la ganancia en Ventas.</span>
+        </label>
+
         {isJersey && (
           <>
             <label>
@@ -394,136 +490,243 @@ export default function ProductForm({ initial, categories, shipments, onCancel, 
           </>
         )}
 
-        {needsSize && !initial && (
+        {needsSize ? (
           <div className="form-field">
-            <span className="form-field-title">Tallas *</span>
-            <div className="size-checkbox-grid">
-              {PRODUCT_SIZES.map((s) => (
-                <label key={s} className="size-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={selectedSizes.includes(s)}
-                    onChange={() => toggleSize(s)}
-                  />
-                  {s}
-                </label>
-              ))}
+            <span className="form-field-title">Tallas y existencias *</span>
+            <div className="variant-grid">
+              {PRODUCT_SIZES.map((size) => {
+                const idx = variants.findIndex((v) => v.size === size);
+                const variant = idx !== -1 ? variants[idx] : null;
+                return (
+                  <div key={size} className={variant ? "variant-row variant-row-active" : "variant-row"}>
+                    <label className="variant-size-check">
+                      <input type="checkbox" checked={!!variant} onChange={() => toggleSize(size)} />
+                      {size}
+                    </label>
+                    {variant && (
+                      <div className="variant-fields">
+                        <select
+                          value={variant.stockStatus}
+                          onChange={(e) => setVariantStockStatus(idx, e.target.value as ProductStockStatus)}
+                        >
+                          {PRODUCT_STOCK_STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                        {variant.stockStatus === "En stock" && (
+                          <input
+                            type="number"
+                            min={1}
+                            className="line-qty-input"
+                            title="Cantidad en stock"
+                            value={variant.quantity}
+                            onChange={(e) => updateVariant(idx, { quantity: Number(e.target.value) })}
+                          />
+                        )}
+                        {variant.stockStatus === "En camino" && (
+                          <>
+                            <select
+                              value={variant.incoming?.shipmentId ?? ""}
+                              onChange={(e) =>
+                                updateVariant(idx, {
+                                  incoming: {
+                                    shipmentId: e.target.value,
+                                    quantity: variant.incoming?.quantity ?? 1,
+                                    reserved: variant.incoming?.reserved ?? 0
+                                  }
+                                })
+                              }
+                            >
+                              <option value="" disabled>
+                                Envío...
+                              </option>
+                              {incomingShipments.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.provider} · #{s.trackingNumber}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              type="number"
+                              min={1}
+                              className="line-qty-input"
+                              title="Piezas en camino"
+                              value={variant.incoming?.quantity ?? 1}
+                              onChange={(e) =>
+                                updateVariant(idx, {
+                                  incoming: {
+                                    shipmentId: variant.incoming?.shipmentId ?? "",
+                                    quantity: Number(e.target.value),
+                                    reserved: variant.incoming?.reserved ?? 0
+                                  }
+                                })
+                              }
+                            />
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
+            {incomingShipments.length === 0 && variants.some((v) => v.stockStatus === "En camino") && (
+              <span className="field-hint">
+                No hay envíos de fábrica pendientes. Crea uno primero en la pestaña Envíos.
+              </span>
+            )}
             <span className="field-hint">
-              Elige una o varias — se crea un producto por cada talla marcada, con la misma
-              información para todas.
+              Marca las tallas que tiene este diseño; todas quedan en el mismo producto.
             </span>
           </div>
-        )}
+        ) : (
+          variants[0] && (
+            <>
+              <label>
+                Estado de stock *
+                <select
+                  value={variants[0].stockStatus}
+                  onChange={(e) => setVariantStockStatus(0, e.target.value as ProductStockStatus)}
+                >
+                  {PRODUCT_STOCK_STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-        {needsSize && initial && (
-          <label>
-            Talla *
-            <select
-              value={form.size}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, size: e.target.value as typeof f.size }))
-              }
-              required
-            >
-              <option value="" disabled>
-                Selecciona...
-              </option>
-              {PRODUCT_SIZES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <label>
-          Estado de stock *
-          <select
-            value={form.stockStatus}
-            onChange={(e) => handleStockStatusChange(e.target.value as ProductStockStatus)}
-          >
-            {PRODUCT_STOCK_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {form.stockStatus === "En stock" && (
-          <label>
-            Cantidad en stock *
-            <input
-              type="number"
-              min={1}
-              value={form.quantity}
-              onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
-              required
-            />
-          </label>
-        )}
-
-        {form.stockStatus === "En camino" && (
-          <>
-            <label>
-              Envío *
-              <select
-                value={form.incoming?.shipmentId ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    incoming: {
-                      shipmentId: e.target.value,
-                      quantity: f.incoming?.quantity ?? 1,
-                      reserved: f.incoming?.reserved ?? 0
-                    }
-                  }))
-                }
-                required
-              >
-                <option value="" disabled>
-                  Selecciona un envío...
-                </option>
-                {incomingShipments.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.provider} · #{s.trackingNumber}
-                  </option>
-                ))}
-              </select>
-              {incomingShipments.length === 0 && (
-                <span className="field-hint">
-                  No hay envíos de fábrica pendientes. Crea uno primero en la pestaña Envíos.
-                </span>
+              {variants[0].stockStatus === "En stock" && (
+                <label>
+                  Cantidad en stock *
+                  <input
+                    type="number"
+                    min={1}
+                    value={variants[0].quantity}
+                    onChange={(e) => updateVariant(0, { quantity: Number(e.target.value) })}
+                    required
+                  />
+                </label>
               )}
-            </label>
 
-            <label>
-              Cuántas piezas vienen *
+              {variants[0].stockStatus === "En camino" && (
+                <>
+                  <label>
+                    Envío *
+                    <select
+                      value={variants[0].incoming?.shipmentId ?? ""}
+                      onChange={(e) =>
+                        updateVariant(0, {
+                          incoming: {
+                            shipmentId: e.target.value,
+                            quantity: variants[0].incoming?.quantity ?? 1,
+                            reserved: variants[0].incoming?.reserved ?? 0
+                          }
+                        })
+                      }
+                      required
+                    >
+                      <option value="" disabled>
+                        Selecciona un envío...
+                      </option>
+                      {incomingShipments.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.provider} · #{s.trackingNumber}
+                        </option>
+                      ))}
+                    </select>
+                    {incomingShipments.length === 0 && (
+                      <span className="field-hint">
+                        No hay envíos de fábrica pendientes. Crea uno primero en la pestaña Envíos.
+                      </span>
+                    )}
+                  </label>
+
+                  <label>
+                    Cuántas piezas vienen *
+                    <input
+                      type="number"
+                      min={1}
+                      value={variants[0].incoming?.quantity ?? 1}
+                      onChange={(e) =>
+                        updateVariant(0, {
+                          incoming: {
+                            shipmentId: variants[0].incoming?.shipmentId ?? "",
+                            quantity: Number(e.target.value),
+                            reserved: variants[0].incoming?.reserved ?? 0
+                          }
+                        })
+                      }
+                      required
+                    />
+                    {!!variants[0].incoming?.reserved && (
+                      <span className="field-hint">
+                        {variants[0].incoming.reserved} de esas piezas ya están apartadas por pedidos.
+                      </span>
+                    )}
+                  </label>
+                </>
+              )}
+            </>
+          )
+        )}
+
+        {initial && isJersey && form.personalized && (
+          <div className="form-field">
+            <span className="form-field-title">Piezas ya personalizadas</span>
+            <span className="field-hint">
+              Para piezas que llegaron con nombre/número ya estampado (mismo diseño, no es un
+              producto aparte). Se suman a la cantidad de esa talla.
+            </span>
+            {personalizedUnits.length > 0 && (
+              <div className="personalized-unit-list">
+                {personalizedUnits.map((u) => (
+                  <div key={u.id} className="personalized-unit-row">
+                    <span>
+                      {u.quantity}× {[u.customName, u.customNumber].filter(Boolean).join(" · ")}
+                      {u.size ? ` (Talla ${u.size})` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      className="thumb-remove"
+                      onClick={() => removePersonalizedUnit(u.id)}
+                      title="Quitar etiqueta (no ajusta la cantidad)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="tag-input-row personalized-unit-add">
+              {needsSize && (
+                <select value={puSize} onChange={(e) => setPuSize(e.target.value as ProductSize | "")}>
+                  <option value="" disabled>
+                    Talla...
+                  </option>
+                  {PRODUCT_SIZES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <input value={puName} onChange={(e) => setPuName(e.target.value)} placeholder="Nombre" />
+              <input value={puNumber} onChange={(e) => setPuNumber(e.target.value)} placeholder="Número" />
               <input
                 type="number"
                 min={1}
-                value={form.incoming?.quantity ?? 1}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    incoming: {
-                      shipmentId: f.incoming?.shipmentId ?? "",
-                      quantity: Number(e.target.value),
-                      reserved: f.incoming?.reserved ?? 0
-                    }
-                  }))
-                }
-                required
+                className="line-qty-input"
+                value={puQty}
+                onChange={(e) => setPuQty(Number(e.target.value))}
               />
-              {!!form.incoming?.reserved && (
-                <span className="field-hint">
-                  {form.incoming.reserved} de esas piezas ya están apartadas por pedidos.
-                </span>
-              )}
-            </label>
-          </>
+              <button type="button" className="secondary" onClick={addPersonalizedUnit}>
+                Agregar
+              </button>
+            </div>
+          </div>
         )}
 
         {error && <div className="auth-error">{error}</div>}
