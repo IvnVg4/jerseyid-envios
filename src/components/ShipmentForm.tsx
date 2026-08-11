@@ -1,12 +1,16 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
   MAX_IMAGES_PER_SHIPMENT,
+  SHIPMENT_DESTINATION_TYPES,
+  SHIPMENT_ORIGINS,
   SHIPMENT_STATUSES,
   Shipment,
   ShipmentInput,
+  ShipmentOrigin,
   ShipmentStatus
 } from "../types";
 import { compressImageFile } from "../utils/imageCompression";
+import ImageLightbox from "./ImageLightbox";
 
 interface Props {
   initial?: Shipment | null;
@@ -20,6 +24,8 @@ const EMPTY: ShipmentInput = {
   trackingLink: "",
   destination: "",
   status: "Pendiente de envío",
+  origin: "Fábrica",
+  destinationType: "Sucursal",
   notes: "",
   images: []
 };
@@ -29,6 +35,7 @@ export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (initial) {
@@ -88,7 +95,11 @@ export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
           <div className="image-thumbs">
             {form.images.map((src, i) => (
               <div key={i} className="image-thumb">
-                <img src={src} alt={`Imagen ${i + 1}`} />
+                <img
+                  src={src}
+                  alt={`Imagen ${i + 1}`}
+                  onClick={() => setPreviewIndex(i)}
+                />
                 <button
                   type="button"
                   className="thumb-remove"
@@ -117,7 +128,7 @@ export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
             </label>
           )}
           <span className="image-count-hint">
-            {form.images.length}/{MAX_IMAGES_PER_SHIPMENT} imágenes · la primera es la que se ve en la lista
+            {form.images.length}/{MAX_IMAGES_PER_SHIPMENT} imágenes · la primera es la que se ve en la lista · haz clic en una para verla en grande
           </span>
         </div>
 
@@ -161,6 +172,46 @@ export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
         </label>
 
         <label>
+          Origen *
+          <select
+            value={form.origin}
+            onChange={(e) => setForm((f) => ({ ...f, origin: e.target.value as ShipmentOrigin }))}
+          >
+            {SHIPMENT_ORIGINS.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">
+            Fábrica = restock de inventario (puede traer productos "en camino" o piezas
+            bajo pedido). Sucursal = ya es tu stock, solo sale hacia un cliente.
+          </span>
+        </label>
+
+        {form.origin === "Fábrica" && (
+          <label>
+            Llega a *
+            <select
+              value={form.destinationType}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, destinationType: e.target.value as typeof f.destinationType }))
+              }
+            >
+              {SHIPMENT_DESTINATION_TYPES.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+            <span className="field-hint">
+              Al marcar este envío "Entregado": Sucursal deja los pedidos ligados en
+              "Listo para entregar"; Domicilio los pasa directo a "Entregado".
+            </span>
+          </label>
+        )}
+
+        <label>
           Estado
           <select
             value={form.status}
@@ -197,6 +248,15 @@ export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
           </button>
         </div>
       </form>
+
+      {previewIndex !== null && (
+        <ImageLightbox
+          images={form.images}
+          index={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+          onIndexChange={setPreviewIndex}
+        />
+      )}
     </div>
   );
 }

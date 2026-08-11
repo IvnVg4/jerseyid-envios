@@ -104,6 +104,12 @@ label {
   margin-bottom: 0.9rem;
 }
 
+.field-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 /* ---- Auth screen ---- */
 
 .auth-screen,
@@ -176,6 +182,23 @@ label {
   margin: 0;
 }
 
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.shipment-count {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
@@ -185,6 +208,38 @@ label {
 .user-email {
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+.view-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1.2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.view-tabs .tab,
+.view-tabs .tab-active {
+  background: none;
+  color: var(--text-muted);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 0.55rem 1.1rem;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.view-tabs .tab:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.view-tabs .tab-active {
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
+
+.view-tabs .tab-active:hover {
+  background: none;
 }
 
 .toolbar {
@@ -221,7 +276,9 @@ label {
   gap: 1rem;
 }
 
-.shipment-card {
+.shipment-card,
+.product-card,
+.order-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -234,6 +291,10 @@ label {
   height: 160px;
   background: var(--surface-2);
   position: relative;
+}
+
+.shipment-image:has(img) {
+  cursor: pointer;
 }
 
 .image-count-badge {
@@ -340,6 +401,167 @@ label {
 
 .icon-button:hover {
   background: var(--border);
+}
+
+/* ---- Stock / productos ---- */
+
+.stock-badge {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+}
+
+.stock-ok {
+  background: rgba(70, 200, 130, 0.85);
+  color: #06301a;
+}
+
+.stock-empty {
+  background: rgba(239, 85, 85, 0.85);
+  color: #340606;
+}
+
+.stock-pending {
+  background: rgba(255, 184, 76, 0.9);
+  color: #3d2600;
+}
+
+.type-badge {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.product-attrs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.attr-chip {
+  background: rgba(79, 124, 255, 0.12);
+  color: #8fadff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+}
+
+.checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.tag-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tag-input-row input {
+  flex: 1;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.78rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+.tag-chip-static {
+  padding: 0.2rem 0.6rem;
+}
+
+.tag-chip button {
+  background: none;
+  color: var(--text-muted);
+  padding: 0 0.3rem;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.tag-chip button:hover {
+  color: var(--danger);
+  background: none;
+}
+
+/* ---- Pedidos ---- */
+
+.line-qty-input {
+  width: 64px;
+  flex: 0 0 auto;
+}
+
+.order-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.order-line-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+}
+
+.order-line-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.order-line-name {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.order-line-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.order-line-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
 }
 
 /* ---- Status badge ---- */
@@ -453,6 +675,7 @@ label {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   display: block;
+  cursor: pointer;
 }
 
 .thumb-remove {
@@ -495,4 +718,87 @@ label {
 
 .file-button:hover {
   background: var(--border);
+}
+
+/* ---- Image lightbox ---- */
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 20;
+}
+
+.lightbox-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.lightbox-stage {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.lightbox-image {
+  max-width: min(80vw, 720px);
+  max-height: 78vh;
+  object-fit: contain;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  display: block;
+}
+
+.lightbox-nav {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 50%;
+  font-size: 1.4rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.lightbox-nav:hover {
+  background: var(--border);
+}
+
+.lightbox-close {
+  align-self: flex-end;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.lightbox-close:hover {
+  background: var(--border);
+}
+
+.lightbox-counter {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }

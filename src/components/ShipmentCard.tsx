@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { Shipment } from "../types";
 import StatusBadge from "./StatusBadge";
+import ImageLightbox from "./ImageLightbox";
 
 interface Props {
   shipment: Shipment;
@@ -8,9 +10,14 @@ interface Props {
 }
 
 export default function ShipmentCard({ shipment, onEdit, onDelete }: Props) {
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
   return (
     <div className="shipment-card">
-      <div className="shipment-image">
+      <div
+        className="shipment-image"
+        onClick={() => shipment.images.length > 0 && setPreviewIndex(0)}
+      >
         {shipment.images.length > 0 ? (
           <img src={shipment.images[0]} alt={shipment.trackingNumber} />
         ) : (
@@ -20,6 +27,15 @@ export default function ShipmentCard({ shipment, onEdit, onDelete }: Props) {
           <span className="image-count-badge">+{shipment.images.length - 1}</span>
         )}
       </div>
+
+      {previewIndex !== null && (
+        <ImageLightbox
+          images={shipment.images}
+          index={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+          onIndexChange={setPreviewIndex}
+        />
+      )}
 
       <div className="shipment-body">
         <div className="shipment-header">

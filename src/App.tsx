@@ -1,28 +1,74 @@
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "./firebase";
-import { SHIPMENT_STATUSES, Shipment, ShipmentInput, ShipmentStatus } from "./types";
+import {
+  Order,
+  OrderInput,
+  PRODUCT_TYPES,
+  Product,
+  ProductInput,
+  ProductType,
+  SHIPMENT_STATUSES,
+  Shipment,
+  ShipmentInput,
+  ShipmentStatus
+} from "./types";
 import {
   createShipment,
   deleteShipment,
   subscribeToShipments,
   updateShipment
 } from "./services/shipments";
+import {
+  createProduct,
+  deleteProduct,
+  subscribeToProducts,
+  updateProduct
+} from "./services/products";
+import {
+  createOrder,
+  deleteOrder,
+  markOrderLineDelivered,
+  subscribeToOrders,
+  updateOrder
+} from "./services/orders";
+import { applyShipmentDelivery } from "./services/fulfillment";
 import Login from "./components/Login";
 import ShipmentCard from "./components/ShipmentCard";
 import ShipmentForm from "./components/ShipmentForm";
+import ProductCard from "./components/ProductCard";
+import ProductForm from "./components/ProductForm";
+import OrderCard from "./components/OrderCard";
+import OrderForm from "./components/OrderForm";
 import ConfirmDialog from "./components/ConfirmDialog";
 
 type StatusFilter = "Todos" | ShipmentStatus;
+type ProductTypeFilter = "Todos" | ProductType;
+type View = "shipments" | "stock" | "orders";
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [view, setView] = useState<View>("shipments");
+
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Todos");
   const [editing, setEditing] = useState<Shipment | null | "new">(null);
   const [pendingDelete, setPendingDelete] = useState<Shipment | null>(null);
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productLoadError, setProductLoadError] = useState<string | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [productTypeFilter, setProductTypeFilter] = useState<ProductTypeFilter>("Todos");
+  const [editingProduct, setEditingProduct] = useState<Product | null | "new">(null);
+  const [pendingDeleteProduct, setPendingDeleteProduct] = useState<Product | null>(null);
+
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [orderLoadError, setOrderLoadError] = useState<string | null>(null);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [editingOrder, setEditingOrder] = useState<Order | null | "new">(null);
+  const [pendingDeleteOrder, setPendingDeleteOrder] = useState<Order | null>(null);
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -31,6 +77,20 @@ export default function App() {
     const unsub = subscribeToShipments(setShipments, (err) =>
       setLoadError(err.message)
     );
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToProducts(setProducts, (err) =>
+      setProductLoadError(err.message)
+    );
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToOrders(setOrders, (err) => setOrderLoadError(err.message));
     return unsub;
   }, [user]);
 
@@ -46,6 +106,29 @@ export default function App() {
       return matchesStatus && matchesTerm;
     });
   }, [shipments, search, statusFilter]);
+
+  const filteredProducts = useMemo(() => {
+    const term = productSearch.trim().toLowerCase();
+    return products.filter((p) => {
+      const matchesType = productTypeFilter === "Todos" || p.type === productTypeFilter;
+      const matchesTerm =
+        !term ||
+        p.name.toLowerCase().includes(term) ||
+        p.patches.some((patch) => patch.toLowerCase().includes(term));
+      return matchesType && matchesTerm;
+    });
+  }, [products, productSearch, productTypeFilter]);
+
+  const filteredOrders = useMemo(() => {
+    const term = orderSearch.trim().toLowerCase();
+    return orders.filter((o) => {
+      return (
+        !term ||
+        o.customerName.toLowerCase().includes(term) ||
+        o.customerPhone.toLowerCase().includes(term)
+      );
+    });
+  }, [orders, orderSearch]);
 
   if (!isFirebaseConfigured) {
     return (
@@ -69,7 +152,11 @@ export default function App() {
 
   async function handleSave(input: ShipmentInput) {
     if (editing && editing !== "new") {
+      const wasDelivered = editing.status === "Entregado";
       await updateShipment(editing.id, input);
+      if (!wasDelivered && input.status === "Entregado") {
+        await applyShipmentDelivery({ ...editing, ...input }, products, orders);
+      }
     } else {
       await createShipment(input);
     }
@@ -82,10 +169,60 @@ export default function App() {
     setPendingDelete(null);
   }
 
+  async function handleSaveProduct(input: ProductInput) {
+    if (editingProduct && editingProduct !== "new") {
+      await updateProduct(editingProduct.id, input);
+    } else {
+      await createProduct(input);
+    }
+    setEditingProduct(null);
+  }
+
+  async function handleDeleteProductConfirmed() {
+    if (!pendingDeleteProduct) return;
+    await deleteProduct(pendingDeleteProduct.id);
+    setPendingDeleteProduct(null);
+  }
+
+  async function handleSaveOrder(input: OrderInput) {
+    if (editingOrder && editingOrder !== "new") {
+      await updateOrder(editingOrder.id, editingOrder, input, products);
+    } else {
+      await createOrder(input, products);
+    }
+    setEditingOrder(null);
+  }
+
+  async function handleDeleteOrderConfirmed() {
+    if (!pendingDeleteOrder) return;
+    await deleteOrder(pendingDeleteOrder, products);
+    setPendingDeleteOrder(null);
+  }
+
+  async function handleMarkLineDelivered(order: Order, lineIndex: number) {
+    await markOrderLineDelivered(order, lineIndex);
+  }
+
+  const countLabel =
+    view === "shipments"
+      ? filtered.length === shipments.length
+        ? `${shipments.length} envío${shipments.length === 1 ? "" : "s"}`
+        : `${filtered.length} de ${shipments.length} envíos`
+      : view === "stock"
+      ? filteredProducts.length === products.length
+        ? `${products.length} producto${products.length === 1 ? "" : "s"}`
+        : `${filteredProducts.length} de ${products.length} productos`
+      : filteredOrders.length === orders.length
+      ? `${orders.length} pedido${orders.length === 1 ? "" : "s"}`
+      : `${filteredOrders.length} de ${orders.length} pedidos`;
+
   return (
     <div className="app-shell">
       <header className="app-header">
-        <h1>JerseyID · Envíos</h1>
+        <div className="header-title">
+          <h1>JerseyID</h1>
+          <span className="shipment-count">{countLabel}</span>
+        </div>
         <div className="header-actions">
           <span className="user-email">{user.email}</span>
           <button className="secondary" onClick={() => signOut(auth)}>
@@ -94,62 +231,208 @@ export default function App() {
         </div>
       </header>
 
-      <div className="toolbar">
-        <input
-          className="search-input"
-          placeholder="Buscar por proveedor, seguimiento o nota..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+      <div className="view-tabs">
+        <button
+          className={view === "shipments" ? "tab-active" : "tab"}
+          onClick={() => setView("shipments")}
         >
-          <option value="Todos">Todos los estados</option>
-          {SHIPMENT_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <button onClick={() => setEditing("new")}>+ Nuevo envío</button>
+          Envíos
+        </button>
+        <button
+          className={view === "stock" ? "tab-active" : "tab"}
+          onClick={() => setView("stock")}
+        >
+          Stock
+        </button>
+        <button
+          className={view === "orders" ? "tab-active" : "tab"}
+          onClick={() => setView("orders")}
+        >
+          Pedidos
+        </button>
       </div>
 
-      {loadError && <div className="auth-error page-error">{loadError}</div>}
-
-      {filtered.length === 0 ? (
-        <div className="empty-state">
-          {shipments.length === 0
-            ? "Todavía no hay envíos registrados. Crea el primero."
-            : "Ningún envío coincide con la búsqueda/filtro."}
-        </div>
-      ) : (
-        <div className="shipment-grid">
-          {filtered.map((s) => (
-            <ShipmentCard
-              key={s.id}
-              shipment={s}
-              onEdit={() => setEditing(s)}
-              onDelete={() => setPendingDelete(s)}
+      {view === "shipments" && (
+        <>
+          <div className="toolbar">
+            <input
+              className="search-input"
+              placeholder="Buscar por proveedor, seguimiento o nota..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
-          ))}
-        </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            >
+              <option value="Todos">Todos los estados</option>
+              {SHIPMENT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <button onClick={() => setEditing("new")}>+ Nuevo envío</button>
+          </div>
+
+          {loadError && <div className="auth-error page-error">{loadError}</div>}
+
+          {filtered.length === 0 ? (
+            <div className="empty-state">
+              {shipments.length === 0
+                ? "Todavía no hay envíos registrados. Crea el primero."
+                : "Ningún envío coincide con la búsqueda/filtro."}
+            </div>
+          ) : (
+            <div className="shipment-grid">
+              {filtered.map((s) => (
+                <ShipmentCard
+                  key={s.id}
+                  shipment={s}
+                  onEdit={() => setEditing(s)}
+                  onDelete={() => setPendingDelete(s)}
+                />
+              ))}
+            </div>
+          )}
+
+          {editing && (
+            <ShipmentForm
+              initial={editing === "new" ? null : editing}
+              onCancel={() => setEditing(null)}
+              onSave={handleSave}
+            />
+          )}
+
+          {pendingDelete && (
+            <ConfirmDialog
+              message={`¿Eliminar el envío de "${pendingDelete.provider}" (#${pendingDelete.trackingNumber})?`}
+              onConfirm={handleDeleteConfirmed}
+              onCancel={() => setPendingDelete(null)}
+            />
+          )}
+        </>
       )}
 
-      {editing && (
-        <ShipmentForm
-          initial={editing === "new" ? null : editing}
-          onCancel={() => setEditing(null)}
-          onSave={handleSave}
-        />
+      {view === "stock" && (
+        <>
+          <div className="toolbar">
+            <input
+              className="search-input"
+              placeholder="Buscar por nombre/diseño o parche..."
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+            />
+            <select
+              value={productTypeFilter}
+              onChange={(e) => setProductTypeFilter(e.target.value as ProductTypeFilter)}
+            >
+              <option value="Todos">Todos los tipos</option>
+              {PRODUCT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <button onClick={() => setEditingProduct("new")}>+ Nuevo producto</button>
+          </div>
+
+          {productLoadError && (
+            <div className="auth-error page-error">{productLoadError}</div>
+          )}
+
+          {filteredProducts.length === 0 ? (
+            <div className="empty-state">
+              {products.length === 0
+                ? "Todavía no hay productos en el inventario. Crea el primero."
+                : "Ningún producto coincide con la búsqueda/filtro."}
+            </div>
+          ) : (
+            <div className="shipment-grid">
+              {filteredProducts.map((p) => (
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  shipments={shipments}
+                  onEdit={() => setEditingProduct(p)}
+                  onDelete={() => setPendingDeleteProduct(p)}
+                />
+              ))}
+            </div>
+          )}
+
+          {editingProduct && (
+            <ProductForm
+              initial={editingProduct === "new" ? null : editingProduct}
+              shipments={shipments}
+              onCancel={() => setEditingProduct(null)}
+              onSave={handleSaveProduct}
+            />
+          )}
+
+          {pendingDeleteProduct && (
+            <ConfirmDialog
+              message={`¿Eliminar el producto "${pendingDeleteProduct.name}"?`}
+              onConfirm={handleDeleteProductConfirmed}
+              onCancel={() => setPendingDeleteProduct(null)}
+            />
+          )}
+        </>
       )}
 
-      {pendingDelete && (
-        <ConfirmDialog
-          message={`¿Eliminar el envío de "${pendingDelete.provider}" (#${pendingDelete.trackingNumber})?`}
-          onConfirm={handleDeleteConfirmed}
-          onCancel={() => setPendingDelete(null)}
-        />
+      {view === "orders" && (
+        <>
+          <div className="toolbar">
+            <input
+              className="search-input"
+              placeholder="Buscar por nombre o número del cliente..."
+              value={orderSearch}
+              onChange={(e) => setOrderSearch(e.target.value)}
+            />
+            <button onClick={() => setEditingOrder("new")}>+ Nuevo pedido</button>
+          </div>
+
+          {orderLoadError && <div className="auth-error page-error">{orderLoadError}</div>}
+
+          {filteredOrders.length === 0 ? (
+            <div className="empty-state">
+              {orders.length === 0
+                ? "Todavía no hay pedidos registrados. Crea el primero."
+                : "Ningún pedido coincide con la búsqueda."}
+            </div>
+          ) : (
+            <div className="shipment-grid">
+              {filteredOrders.map((o) => (
+                <OrderCard
+                  key={o.id}
+                  order={o}
+                  shipments={shipments}
+                  onEdit={() => setEditingOrder(o)}
+                  onDelete={() => setPendingDeleteOrder(o)}
+                  onMarkLineDelivered={(lineIndex) => handleMarkLineDelivered(o, lineIndex)}
+                />
+              ))}
+            </div>
+          )}
+
+          {editingOrder && (
+            <OrderForm
+              initial={editingOrder === "new" ? null : editingOrder}
+              products={products}
+              shipments={shipments}
+              onCancel={() => setEditingOrder(null)}
+              onSave={handleSaveOrder}
+            />
+          )}
+
+          {pendingDeleteOrder && (
+            <ConfirmDialog
+              message={`¿Eliminar el pedido de "${pendingDeleteOrder.customerName}"?`}
+              onConfirm={handleDeleteOrderConfirmed}
+              onCancel={() => setPendingDeleteOrder(null)}
+            />
+          )}
+        </>
       )}
     </div>
   );
