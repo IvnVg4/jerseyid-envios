@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"npm:dev\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "npm run build && electron-builder",
-    "release": "npm run build && electron-builder --publish always"
+    "release": "npm run build && electron-builder --publish always",
+    "deploy:rules": "firebase deploy --only firestore:rules"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
@@ -22,6 +23,7 @@
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "firebase": "^11.0.2",
+    "firebase-tools": "^15.26.0",
     "png-to-ico": "^3.0.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

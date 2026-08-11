@@ -7,7 +7,7 @@ App de escritorio (Electron + React) para llevar el seguimiento de los envíos d
 1. Entra a https://console.firebase.google.com y crea un proyecto nuevo (plan **Spark**, gratis, no pide tarjeta).
 2. En el menú lateral entra a **Compilación → Authentication → Comenzar** y habilita el proveedor **Correo electrónico/contraseña**.
 3. En **Compilación → Firestore Database → Crear base de datos**, elige **Modo de producción** y la región más cercana.
-4. Dentro de Firestore, ve a la pestaña **Reglas** y pega el contenido del archivo [`firestore.rules`](firestore.rules) de este proyecto (solo deja leer/escribir a usuarios que iniciaron sesión). Publica los cambios.
+4. Dentro de Firestore, ve a la pestaña **Reglas** y pega el contenido del archivo [`firestore.rules`](firestore.rules) de este proyecto (solo deja leer/escribir a usuarios que iniciaron sesión). Publica los cambios. Para cambios futuros a este archivo, en vez de copiar/pegar a mano puedes correr `npm run deploy:rules` (requiere haber hecho `npx firebase login` una vez).
 5. Ve a **Configuración del proyecto** (ícono de engranaje) → baja a **Tus apps** → clic en el ícono `</>` (Web) → registra la app (el nombre puede ser "JerseyID Envíos") → copia el objeto `firebaseConfig` que te muestra.
 6. En **Authentication → Users**, agrega manualmente los usuarios (correo + contraseña) que van a usar la app; o bien, la primera vez que abras la app puedes usar el botón "Crear cuenta del negocio" dentro de la misma app.
 
