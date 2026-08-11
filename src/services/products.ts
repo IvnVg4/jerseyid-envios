@@ -42,6 +42,7 @@ export function subscribeToProducts(
           stockStatus: data.stockStatus ?? (data.quantity > 0 ? "En stock" : "Agotado"),
           incoming: data.incoming ?? null,
           images: data.images ?? [],
+          price: data.price ?? 0,
           createdAt: toMillis(data.createdAt),
           updatedAt: toMillis(data.updatedAt)
         };

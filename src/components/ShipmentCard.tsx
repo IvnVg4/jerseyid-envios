@@ -1,16 +1,19 @@
 import { useState } from "react";
-import type { Shipment } from "../types";
+import type { Product, Shipment } from "../types";
 import StatusBadge from "./StatusBadge";
 import ImageLightbox from "./ImageLightbox";
 
 interface Props {
   shipment: Shipment;
+  products: Product[];
   onEdit: () => void;
   onDelete: () => void;
 }
 
-export default function ShipmentCard({ shipment, onEdit, onDelete }: Props) {
+export default function ShipmentCard({ shipment, products, onEdit, onDelete }: Props) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const linkedProducts = products.filter((p) => p.incoming?.shipmentId === shipment.id);
 
   return (
     <div className="shipment-card">
@@ -50,6 +53,33 @@ export default function ShipmentCard({ shipment, onEdit, onDelete }: Props) {
         )}
 
         {shipment.notes && <p className="shipment-notes">{shipment.notes}</p>}
+
+        {linkedProducts.length > 0 && (
+          <div className="shipment-details">
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setShowDetails((v) => !v)}
+            >
+              {showDetails ? "Ocultar" : "Ver"} detalles del envío ({linkedProducts.length})
+            </button>
+            {showDetails && (
+              <div className="shipment-details-list">
+                {linkedProducts.map((p) => (
+                  <div key={p.id} className="shipment-details-row">
+                    <span>
+                      {p.incoming?.quantity ?? 0}× {p.name}
+                      {p.size ? ` (Talla ${p.size})` : ""}
+                    </span>
+                    {!!p.incoming?.reserved && (
+                      <span className="field-hint">{p.incoming.reserved} apartada(s)</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="shipment-actions">
           {shipment.trackingLink ? (

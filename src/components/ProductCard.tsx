@@ -17,7 +17,9 @@ const STOCK_STATUS_CLASS: Record<Product["stockStatus"], string> = {
 
 export default function ProductCard({ product, shipments, onEdit, onDelete }: Props) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
-  const isJersey = product.type === "Jersey";
+  const hasJerseyAttrs = Boolean(
+    product.sleeve || product.version || product.personalized || product.patches.length > 0
+  );
   const incomingShipment = product.incoming
     ? shipments.find((s) => s.id === product.incoming?.shipmentId)
     : undefined;
@@ -52,16 +54,16 @@ export default function ProductCard({ product, shipments, onEdit, onDelete }: Pr
           <span className="type-badge">{product.type}</span>
         </div>
 
+        <div className="product-price">${product.price.toLocaleString("es-MX")}</div>
+
         <div className="product-attrs">
-          {isJersey && product.sleeve && <span className="attr-chip">{product.sleeve}</span>}
-          {isJersey && product.version && <span className="attr-chip">{product.version}</span>}
+          {product.sleeve && <span className="attr-chip">{product.sleeve}</span>}
+          {product.version && <span className="attr-chip">{product.version}</span>}
           {product.size && <span className="attr-chip">Talla {product.size}</span>}
-          {isJersey && product.personalized && (
-            <span className="attr-chip">Personalizado</span>
-          )}
+          {product.personalized && <span className="attr-chip">Personalizado</span>}
         </div>
 
-        {isJersey && product.patches.length > 0 && (
+        {hasJerseyAttrs && product.patches.length > 0 && (
           <div className="tag-list">
             {product.patches.map((patch, i) => (
               <span key={i} className="tag-chip tag-chip-static">

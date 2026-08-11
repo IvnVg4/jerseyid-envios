@@ -1,30 +1,30 @@
 import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import {
+  Category,
   JERSEY_SLEEVES,
   JERSEY_VERSIONS,
   MAX_IMAGES_PER_PRODUCT,
   PRODUCT_SIZES,
   PRODUCT_STOCK_STATUSES,
-  PRODUCT_TYPES,
   Product,
   ProductInput,
+  ProductSize,
   ProductStockStatus,
-  ProductType,
-  Shipment,
-  SIZED_PRODUCT_TYPES
+  Shipment
 } from "../types";
 import { compressImageFile } from "../utils/imageCompression";
 import ImageLightbox from "./ImageLightbox";
 
 interface Props {
   initial?: Product | null;
+  categories: Category[];
   shipments: Shipment[];
   onCancel: () => void;
-  onSave: (input: ProductInput) => Promise<void>;
+  onSave: (inputs: ProductInput[]) => Promise<void>;
 }
 
 const EMPTY: ProductInput = {
-  type: "Jersey",
+  type: "",
   name: "",
   size: "",
   sleeve: "",
@@ -34,11 +34,13 @@ const EMPTY: ProductInput = {
   quantity: 1,
   stockStatus: "En stock",
   incoming: null,
-  images: []
+  images: [],
+  price: 0
 };
 
-export default function ProductForm({ initial, shipments, onCancel, onSave }: Props) {
+export default function ProductForm({ initial, categories, shipments, onCancel, onSave }: Props) {
   const [form, setForm] = useState<ProductInput>(EMPTY);
+  const [selectedSizes, setSelectedSizes] = useState<ProductSize[]>([]);
   const [patchInput, setPatchInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,10 +54,18 @@ export default function ProductForm({ initial, shipments, onCancel, onSave }: Pr
     } else {
       setForm(EMPTY);
     }
+    setSelectedSizes([]);
   }, [initial]);
 
-  const isJersey = form.type === "Jersey";
-  const needsSize = SIZED_PRODUCT_TYPES.includes(form.type);
+  const parentCategories = categories
+    .filter((c) => c.parentId === null)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const childrenOf = (parentId: string) =>
+    categories.filter((c) => c.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
+
+  const selectedCategory = categories.find((c) => c.name === form.type);
+  const isJersey = selectedCategory?.isJerseyLike ?? false;
+  const needsSize = selectedCategory?.usesSizes ?? false;
   const incomingShipments = shipments.filter(
     (s) => s.origin === "Fábrica" && s.status !== "Entregado"
   );
@@ -72,16 +82,26 @@ export default function ProductForm({ initial, shipments, onCancel, onSave }: Pr
     }));
   }
 
-  function handleTypeChange(type: ProductType) {
+  function handleTypeChange(typeName: string) {
+    const category = categories.find((c) => c.name === typeName);
+    const nextIsJersey = category?.isJerseyLike ?? false;
+    const nextNeedsSize = category?.usesSizes ?? false;
     setForm((f) => ({
       ...f,
-      type,
-      size: SIZED_PRODUCT_TYPES.includes(type) ? f.size : "",
-      sleeve: type === "Jersey" ? f.sleeve : "",
-      version: type === "Jersey" ? f.version : "",
-      personalized: type === "Jersey" ? f.personalized : false,
-      patches: type === "Jersey" ? f.patches : []
+      type: typeName,
+      size: nextNeedsSize ? f.size : "",
+      sleeve: nextIsJersey ? f.sleeve : "",
+      version: nextIsJersey ? f.version : "",
+      personalized: nextIsJersey ? f.personalized : false,
+      patches: nextIsJersey ? f.patches : []
     }));
+    setSelectedSizes([]);
+  }
+
+  function toggleSize(size: ProductSize) {
+    setSelectedSizes((sizes) =>
+      sizes.includes(size) ? sizes.filter((s) => s !== size) : [...sizes, size]
+    );
   }
 
   function addPatch() {
@@ -124,6 +144,10 @@ export default function ProductForm({ initial, shipments, onCancel, onSave }: Pr
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!form.type) {
+      setError("Elige una categoría.");
+      return;
+    }
     if (!form.name.trim()) {
       setError("El nombre / diseño es obligatorio.");
       return;
@@ -132,8 +156,16 @@ export default function ProductForm({ initial, shipments, onCancel, onSave }: Pr
       setError("Para jerseys, elige el tipo de manga y la versión.");
       return;
     }
-    if (needsSize && !form.size) {
+    if (needsSize && !initial && selectedSizes.length === 0) {
+      setError("Elige al menos una talla.");
+      return;
+    }
+    if (needsSize && initial && !form.size) {
       setError("Elige una talla.");
+      return;
+    }
+    if (!form.price || form.price <= 0) {
+      setError("Indica el precio de venta.");
       return;
     }
     if (form.stockStatus === "En stock" && form.quantity < 1) {
@@ -158,7 +190,11 @@ export default function ProductForm({ initial, shipments, onCancel, onSave }: Pr
     }
     setSaving(true);
     try {
-      await onSave(form);
+      const inputs: ProductInput[] =
+        needsSize && !initial && selectedSizes.length > 0
+          ? selectedSizes.map((size) => ({ ...form, size }))
+          : [form];
+      await onSave(inputs);
     } catch {
       setError("No se pudo guardar el producto. Revisa tu conexión.");
     } finally {
@@ -217,17 +253,37 @@ export default function ProductForm({ initial, shipments, onCancel, onSave }: Pr
         </div>
 
         <label>
-          Tipo de producto *
-          <select
-            value={form.type}
-            onChange={(e) => handleTypeChange(e.target.value as ProductType)}
-          >
-            {PRODUCT_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
+          Categoría *
+          <select value={form.type} onChange={(e) => handleTypeChange(e.target.value)} required>
+            <option value="" disabled>
+              Selecciona...
+            </option>
+            {parentCategories.map((parent) => {
+              const children = childrenOf(parent.id);
+              if (children.length === 0) {
+                return (
+                  <option key={parent.id} value={parent.name}>
+                    {parent.name}
+                  </option>
+                );
+              }
+              return (
+                <optgroup key={parent.id} label={parent.name}>
+                  <option value={parent.name}>{parent.name} (general)</option>
+                  {children.map((child) => (
+                    <option key={child.id} value={child.name}>
+                      {child.name}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
+          {parentCategories.length === 0 && (
+            <span className="field-hint">
+              No hay categorías todavía. Crea una en la pestaña "Categorías".
+            </span>
+          )}
         </label>
 
         <label>
@@ -236,6 +292,18 @@ export default function ProductForm({ initial, shipments, onCancel, onSave }: Pr
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="Ej. Real Madrid Local 23/24"
+            required
+          />
+        </label>
+
+        <label>
+          Precio de venta *
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={form.price}
+            onChange={(e) => setForm((f) => ({ ...f, price: Number(e.target.value) }))}
             required
           />
         </label>
@@ -326,7 +394,29 @@ export default function ProductForm({ initial, shipments, onCancel, onSave }: Pr
           </>
         )}
 
-        {needsSize && (
+        {needsSize && !initial && (
+          <div className="form-field">
+            <span className="form-field-title">Tallas *</span>
+            <div className="size-checkbox-grid">
+              {PRODUCT_SIZES.map((s) => (
+                <label key={s} className="size-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={selectedSizes.includes(s)}
+                    onChange={() => toggleSize(s)}
+                  />
+                  {s}
+                </label>
+              ))}
+            </div>
+            <span className="field-hint">
+              Elige una o varias — se crea un producto por cada talla marcada, con la misma
+              información para todas.
+            </span>
+          </div>
+        )}
+
+        {needsSize && initial && (
           <label>
             Talla *
             <select

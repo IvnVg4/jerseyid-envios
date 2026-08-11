@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "./firebase";
 import {
+  Category,
+  CategoryInput,
   Order,
   OrderInput,
-  PRODUCT_TYPES,
   Product,
   ProductInput,
-  ProductType,
   SHIPMENT_STATUSES,
   Shipment,
   ShipmentInput,
@@ -28,10 +28,20 @@ import {
 import {
   createOrder,
   deleteOrder,
+  markAllOrderLinesDelivered,
   markOrderLineDelivered,
+  removeOrderLine,
   subscribeToOrders,
   updateOrder
 } from "./services/orders";
+import {
+  createCategory,
+  deleteCategory,
+  deleteCategoryWithChildren,
+  seedDefaultCategoriesIfEmpty,
+  subscribeToCategories,
+  updateCategory
+} from "./services/categories";
 import { applyShipmentDelivery } from "./services/fulfillment";
 import Login from "./components/Login";
 import ShipmentCard from "./components/ShipmentCard";
@@ -40,11 +50,12 @@ import ProductCard from "./components/ProductCard";
 import ProductForm from "./components/ProductForm";
 import OrderCard from "./components/OrderCard";
 import OrderForm from "./components/OrderForm";
+import CategoryManager from "./components/CategoryManager";
 import ConfirmDialog from "./components/ConfirmDialog";
 
 type StatusFilter = "Todos" | ShipmentStatus;
-type ProductTypeFilter = "Todos" | ProductType;
-type View = "shipments" | "stock" | "orders";
+type ProductTypeFilter = "Todos" | string;
+type View = "shipments" | "stock" | "orders" | "categories";
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -70,6 +81,10 @@ export default function App() {
   const [editingOrder, setEditingOrder] = useState<Order | null | "new">(null);
   const [pendingDeleteOrder, setPendingDeleteOrder] = useState<Order | null>(null);
 
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryLoadError, setCategoryLoadError] = useState<string | null>(null);
+  const seededCategories = useRef(false);
+
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
   useEffect(() => {
@@ -91,6 +106,23 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     const unsub = subscribeToOrders(setOrders, (err) => setOrderLoadError(err.message));
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToCategories(
+      (cats) => {
+        setCategories(cats);
+        if (cats.length === 0 && !seededCategories.current) {
+          seededCategories.current = true;
+          seedDefaultCategoriesIfEmpty().catch(() => {
+            seededCategories.current = false;
+          });
+        }
+      },
+      (err) => setCategoryLoadError(err.message)
+    );
     return unsub;
   }, [user]);
 
@@ -118,6 +150,11 @@ export default function App() {
       return matchesType && matchesTerm;
     });
   }, [products, productSearch, productTypeFilter]);
+
+  const categoryNames = useMemo(
+    () => [...new Set(categories.map((c) => c.name))].sort((a, b) => a.localeCompare(b)),
+    [categories]
+  );
 
   const filteredOrders = useMemo(() => {
     const term = orderSearch.trim().toLowerCase();
@@ -169,11 +206,13 @@ export default function App() {
     setPendingDelete(null);
   }
 
-  async function handleSaveProduct(input: ProductInput) {
+  async function handleSaveProduct(inputs: ProductInput[]) {
     if (editingProduct && editingProduct !== "new") {
-      await updateProduct(editingProduct.id, input);
+      await updateProduct(editingProduct.id, inputs[0]);
     } else {
-      await createProduct(input);
+      for (const input of inputs) {
+        await createProduct(input);
+      }
     }
     setEditingProduct(null);
   }
@@ -203,6 +242,31 @@ export default function App() {
     await markOrderLineDelivered(order, lineIndex);
   }
 
+  async function handleMarkAllDelivered(order: Order) {
+    await markAllOrderLinesDelivered(order);
+  }
+
+  async function handleRemoveOrderLine(order: Order, lineIndex: number) {
+    await removeOrderLine(order, lineIndex, products);
+  }
+
+  async function handleCreateCategory(input: CategoryInput) {
+    await createCategory(input);
+  }
+
+  async function handleUpdateCategory(id: string, input: Partial<CategoryInput>) {
+    await updateCategory(id, input);
+  }
+
+  async function handleDeleteCategory(category: Category) {
+    const hasChildren = categories.some((c) => c.parentId === category.id);
+    if (hasChildren) {
+      await deleteCategoryWithChildren(category.id, categories);
+    } else {
+      await deleteCategory(category.id);
+    }
+  }
+
   const countLabel =
     view === "shipments"
       ? filtered.length === shipments.length
@@ -212,9 +276,11 @@ export default function App() {
       ? filteredProducts.length === products.length
         ? `${products.length} producto${products.length === 1 ? "" : "s"}`
         : `${filteredProducts.length} de ${products.length} productos`
-      : filteredOrders.length === orders.length
-      ? `${orders.length} pedido${orders.length === 1 ? "" : "s"}`
-      : `${filteredOrders.length} de ${orders.length} pedidos`;
+      : view === "orders"
+      ? filteredOrders.length === orders.length
+        ? `${orders.length} pedido${orders.length === 1 ? "" : "s"}`
+        : `${filteredOrders.length} de ${orders.length} pedidos`
+      : `${categories.length} categoría${categories.length === 1 ? "" : "s"}`;
 
   return (
     <div className="app-shell">
@@ -249,6 +315,12 @@ export default function App() {
           onClick={() => setView("orders")}
         >
           Pedidos
+        </button>
+        <button
+          className={view === "categories" ? "tab-active" : "tab"}
+          onClick={() => setView("categories")}
+        >
+          Categorías
         </button>
       </div>
 
@@ -289,6 +361,7 @@ export default function App() {
                 <ShipmentCard
                   key={s.id}
                   shipment={s}
+                  products={products}
                   onEdit={() => setEditing(s)}
                   onDelete={() => setPendingDelete(s)}
                 />
@@ -328,9 +401,9 @@ export default function App() {
               onChange={(e) => setProductTypeFilter(e.target.value as ProductTypeFilter)}
             >
               <option value="Todos">Todos los tipos</option>
-              {PRODUCT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {categoryNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
                 </option>
               ))}
             </select>
@@ -364,6 +437,7 @@ export default function App() {
           {editingProduct && (
             <ProductForm
               initial={editingProduct === "new" ? null : editingProduct}
+              categories={categories}
               shipments={shipments}
               onCancel={() => setEditingProduct(null)}
               onSave={handleSaveProduct}
@@ -410,6 +484,8 @@ export default function App() {
                   onEdit={() => setEditingOrder(o)}
                   onDelete={() => setPendingDeleteOrder(o)}
                   onMarkLineDelivered={(lineIndex) => handleMarkLineDelivered(o, lineIndex)}
+                  onMarkAllDelivered={() => handleMarkAllDelivered(o)}
+                  onRemoveLine={(lineIndex) => handleRemoveOrderLine(o, lineIndex)}
                 />
               ))}
             </div>
@@ -432,6 +508,20 @@ export default function App() {
               onCancel={() => setPendingDeleteOrder(null)}
             />
           )}
+        </>
+      )}
+
+      {view === "categories" && (
+        <>
+          {categoryLoadError && (
+            <div className="auth-error page-error">{categoryLoadError}</div>
+          )}
+          <CategoryManager
+            categories={categories}
+            onCreate={handleCreateCategory}
+            onUpdate={handleUpdateCategory}
+            onDelete={handleDeleteCategory}
+          />
         </>
       )}
     </div>

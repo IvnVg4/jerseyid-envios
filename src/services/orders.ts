@@ -36,7 +36,12 @@ export function subscribeToOrders(
           customerPhone: data.customerPhone ?? "",
           hasDeposit: data.hasDeposit ?? false,
           depositAmount: data.depositAmount ?? 0,
-          lines: data.lines ?? [],
+          fulfillmentType: data.fulfillmentType ?? "Cliente de Mérida",
+          shippingAddress: data.shippingAddress ?? null,
+          lines: (data.lines ?? []).map((line: OrderLine) => ({
+            ...line,
+            unitPrice: line.unitPrice ?? 0
+          })),
           notes: data.notes ?? "",
           createdAt: toMillis(data.createdAt),
           updatedAt: toMillis(data.updatedAt)
@@ -171,4 +176,28 @@ export async function markOrderLineDelivered(order: Order, lineIndex: number) {
     lines,
     updatedAt: serverTimestamp()
   });
+}
+
+export async function markAllOrderLinesDelivered(order: Order) {
+  const lines = order.lines.map((line) =>
+    line.status === "Entregado" ? line : { ...line, status: "Entregado" as const }
+  );
+  await updateDoc(doc(db, ORDERS, order.id), {
+    lines,
+    updatedAt: serverTimestamp()
+  });
+}
+
+/** Quita una línea del pedido (ej. "quitar apartado" de una línea "Bajo pedido") y libera el stock/reserva que tenía. */
+export async function removeOrderLine(order: Order, lineIndex: number, products: Product[]) {
+  const line = order.lines[lineIndex];
+  const newLines = order.lines.filter((_, i) => i !== lineIndex);
+
+  const batch = writeBatch(db);
+  const soldDelta = computeSoldDelta([line], []);
+  const reservedDelta = computeReservedDelta([line], []);
+  applyProductDeltas(batch, products, soldDelta, reservedDelta);
+
+  batch.update(doc(db, ORDERS, order.id), { lines: newLines, updatedAt: serverTimestamp() });
+  await batch.commit();
 }

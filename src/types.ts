@@ -39,10 +39,27 @@ export interface Shipment {
 
 export type ShipmentInput = Omit<Shipment, "id" | "createdAt" | "updatedAt">;
 
-// ---- Stock / inventario ----
+// ---- Categorías ----
 
-export const PRODUCT_TYPES = ["Jersey", "Balón", "Chamarra", "Playera"] as const;
-export type ProductType = (typeof PRODUCT_TYPES)[number];
+// Categorías totalmente editables desde la app (apartado "Categorías"). Una
+// categoría con parentId null es una categoría padre; el producto siempre
+// guarda el *nombre* (no el id) en `product.type`, igual que antes cuando los
+// tipos eran fijos, para no romper los productos ya guardados.
+export interface Category {
+  id: string;
+  name: string;
+  parentId: string | null;
+  /** Si aplica selector de talla (S–4XL) a los productos de esta categoría. */
+  usesSizes: boolean;
+  /** Si aplica los campos de manga/versión/personalizado/parches. */
+  isJerseyLike: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type CategoryInput = Omit<Category, "id" | "createdAt" | "updatedAt">;
+
+// ---- Stock / inventario ----
 
 export const JERSEY_SLEEVES = ["Manga corta", "Manga larga"] as const;
 export type JerseySleeve = (typeof JERSEY_SLEEVES)[number];
@@ -52,9 +69,6 @@ export type JerseyVersion = (typeof JERSEY_VERSIONS)[number];
 
 export const PRODUCT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "4XL"] as const;
 export type ProductSize = (typeof PRODUCT_SIZES)[number];
-
-// Balón no usa tallas de ropa (S-4XL).
-export const SIZED_PRODUCT_TYPES: ProductType[] = ["Jersey", "Chamarra", "Playera"];
 
 export const MAX_IMAGES_PER_PRODUCT = 2;
 
@@ -70,7 +84,7 @@ export interface ProductIncoming {
 
 export interface Product {
   id: string;
-  type: ProductType;
+  type: string;
   name: string;
   size: ProductSize | "";
   sleeve: JerseySleeve | "";
@@ -81,6 +95,8 @@ export interface Product {
   stockStatus: ProductStockStatus;
   incoming: ProductIncoming | null;
   images: string[];
+  /** Precio de venta unitario. */
+  price: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -103,7 +119,32 @@ export interface OrderLine {
   quantity: number;
   status: OrderLineStatus;
   shipmentId: string | null;
+  /** Precio unitario capturado al agregar la línea (no cambia si luego cambia el precio del producto). */
+  unitPrice: number;
 }
+
+// Cliente de Mérida = entrega local, sin datos de envío. Envío foráneo =
+// pide dirección completa para mandarlo fuera de Mérida.
+export const ORDER_FULFILLMENT_TYPES = ["Cliente de Mérida", "Envío foráneo"] as const;
+export type OrderFulfillmentType = (typeof ORDER_FULFILLMENT_TYPES)[number];
+
+export interface OrderShippingAddress {
+  city: string;
+  state: string;
+  street: string;
+  crossStreets: string;
+  neighborhood: string;
+  postalCode: string;
+}
+
+export const EMPTY_SHIPPING_ADDRESS: OrderShippingAddress = {
+  city: "",
+  state: "",
+  street: "",
+  crossStreets: "",
+  neighborhood: "",
+  postalCode: ""
+};
 
 export interface Order {
   id: string;
@@ -111,6 +152,8 @@ export interface Order {
   customerPhone: string;
   hasDeposit: boolean;
   depositAmount: number;
+  fulfillmentType: OrderFulfillmentType;
+  shippingAddress: OrderShippingAddress | null;
   lines: OrderLine[];
   notes: string;
   createdAt: number;
