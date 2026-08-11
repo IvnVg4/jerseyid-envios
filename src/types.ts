@@ -121,6 +121,10 @@ export interface OrderLine {
   shipmentId: string | null;
   /** Precio unitario capturado al agregar la línea (no cambia si luego cambia el precio del producto). */
   unitPrice: number;
+  /** Nombre a estampar en la jersey (solo para productos personalizados). Puede venir vacío si solo se pide número. */
+  customName: string;
+  /** Número a estampar en la jersey (solo para productos personalizados). Puede venir vacío si solo se pide nombre. */
+  customNumber: string;
 }
 
 // Cliente de Mérida = entrega local, sin datos de envío. Envío foráneo =

@@ -40,7 +40,9 @@ export function subscribeToOrders(
           shippingAddress: data.shippingAddress ?? null,
           lines: (data.lines ?? []).map((line: OrderLine) => ({
             ...line,
-            unitPrice: line.unitPrice ?? 0
+            unitPrice: line.unitPrice ?? 0,
+            customName: line.customName ?? "",
+            customNumber: line.customNumber ?? ""
           })),
           notes: data.notes ?? "",
           createdAt: toMillis(data.createdAt),

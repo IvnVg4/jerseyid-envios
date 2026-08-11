@@ -70,6 +70,8 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
   const [selectedProductId, setSelectedProductId] = useState("");
   const [lineQuantity, setLineQuantity] = useState(1);
   const [lineUnitPrice, setLineUnitPrice] = useState(0);
+  const [lineCustomName, setLineCustomName] = useState("");
+  const [lineCustomNumber, setLineCustomNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,6 +89,7 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
   const sellableProducts = products.filter(
     (p) => p.stockStatus !== "Agotado" && availableQuantity(p, initialLines, form.lines) > 0
   );
+  const selectedProduct = products.find((p) => p.id === selectedProductId);
 
   function addLine() {
     setError(null);
@@ -114,12 +117,16 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
       quantity: lineQuantity,
       status,
       shipmentId,
-      unitPrice: lineUnitPrice
+      unitPrice: lineUnitPrice,
+      customName: product.personalized ? lineCustomName.trim() : "",
+      customNumber: product.personalized ? lineCustomNumber.trim() : ""
     };
     setForm((f) => ({ ...f, lines: [...f.lines, line] }));
     setSelectedProductId("");
     setLineQuantity(1);
     setLineUnitPrice(0);
+    setLineCustomName("");
+    setLineCustomNumber("");
   }
 
   function updateAddress(field: keyof OrderShippingAddress, value: string) {
@@ -355,6 +362,21 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
               Agregar
             </button>
           </div>
+          {selectedProduct?.personalized && (
+            <div className="tag-input-row">
+              <input
+                value={lineCustomName}
+                onChange={(e) => setLineCustomName(e.target.value)}
+                placeholder="Nombre en la jersey (opcional)"
+              />
+              <input
+                value={lineCustomNumber}
+                onChange={(e) => setLineCustomNumber(e.target.value)}
+                placeholder="Número (opcional)"
+                className="line-qty-input"
+              />
+            </div>
+          )}
           {sellableProducts.length === 0 && (
             <span className="field-hint">
               No hay productos con stock disponible ni en camino para vender.
@@ -366,8 +388,17 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
           <div className="order-lines">
             {form.lines.map((line, i) => {
               const shipment = line.shipmentId ? shipments.find((s) => s.id === line.shipmentId) : undefined;
+              const lineProduct = products.find((p) => p.id === line.productId);
+              const personalization = [line.customName, line.customNumber].filter(Boolean).join(" · ");
               return (
                 <div key={i} className="order-line-row">
+                  <div className="order-line-thumb">
+                    {lineProduct?.images[0] ? (
+                      <img src={lineProduct.images[0]} alt={line.productName} />
+                    ) : (
+                      <div className="order-line-thumb-empty" />
+                    )}
+                  </div>
                   <div className="order-line-info">
                     <span className="order-line-name">
                       {line.quantity}× {line.productName} — ${(line.quantity * line.unitPrice).toLocaleString("es-MX")}
@@ -375,6 +406,7 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
                     <div className="order-line-meta">
                       <OrderLineStatusBadge status={line.status} />
                       {shipment && <span className="attr-chip">vía envío #{shipment.trackingNumber}</span>}
+                      {personalization && <span className="attr-chip">{personalization}</span>}
                     </div>
                   </div>
                   <div className="order-line-actions">

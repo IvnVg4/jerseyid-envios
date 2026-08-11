@@ -1,16 +1,46 @@
 :root {
-  --bg: #0f1115;
-  --surface: #171a21;
-  --surface-2: #1f232c;
-  --border: #2a2f3a;
-  --text: #eef0f4;
-  --text-muted: #9aa1af;
-  --accent: #4f7cff;
-  --accent-hover: #6b91ff;
-  --danger: #ef5555;
+  --bg: #eae3d0;
+  --surface: #f6f2e6;
+  --surface-2: #efe8d6;
+  --border: #d9cfb3;
+  --text: #1c1a14;
+  --text-muted: #8a8170;
+  --accent: #c9a227;
+  --accent-hover: #b8931f;
+  /* Versión oscura del dorado, para texto/links sobre fondo claro (el dorado plano no da suficiente contraste como texto). */
+  --accent-strong: #6b5210;
+  --danger: #b23a2c;
   --radius: 10px;
+  --font-display: "Oswald", "Segoe UI", system-ui, sans-serif;
+  --font-brand: "Anton", "Oswald", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Space Mono", "Consolas", monospace;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  color-scheme: dark;
+  color-scheme: light;
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.brand {
+  font-family: var(--font-brand);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.brand-accent {
+  color: var(--accent-strong);
+  margin: 0 0.05em;
 }
 
 * {
@@ -30,13 +60,16 @@ body {
 }
 
 button {
-  font-family: inherit;
+  font-family: var(--font-display);
   font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
   border: none;
   border-radius: var(--radius);
   padding: 0.55rem 1rem;
   background: var(--accent);
-  color: white;
+  color: var(--text);
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -62,11 +95,16 @@ button.secondary:hover:not(:disabled) {
 
 button.danger-solid {
   background: var(--danger);
+  color: white;
 }
 
 button.link-button {
   background: none;
-  color: var(--accent);
+  color: var(--accent-strong);
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: inherit;
+  font-weight: 400;
   padding: 0.25rem 0;
 }
 
@@ -91,7 +129,7 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-strong);
   outline-offset: -1px;
 }
 
@@ -153,9 +191,9 @@ label {
 }
 
 .auth-error {
-  background: rgba(239, 85, 85, 0.12);
-  border: 1px solid rgba(239, 85, 85, 0.4);
-  color: #ff9d9d;
+  background: rgba(178, 58, 44, 0.1);
+  border: 1px solid rgba(178, 58, 44, 0.35);
+  color: var(--danger);
   border-radius: var(--radius);
   padding: 0.5rem 0.7rem;
   font-size: 0.8rem;
@@ -175,10 +213,12 @@ label {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1.5rem;
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid var(--border);
 }
 
 .app-header h1 {
-  font-size: 1.3rem;
+  font-size: 1.5rem;
   margin: 0;
 }
 
@@ -223,7 +263,10 @@ label {
   color: var(--text-muted);
   border-radius: var(--radius) var(--radius) 0 0;
   padding: 0.55rem 1.1rem;
+  font-family: var(--font-display);
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
@@ -235,7 +278,7 @@ label {
 
 .view-tabs .tab-active {
   color: var(--text);
-  border-bottom: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent-strong);
 }
 
 .view-tabs .tab-active:hover {
@@ -288,7 +331,8 @@ label {
 }
 
 .shipment-image {
-  height: 160px;
+  height: auto;
+  aspect-ratio: 1 / 1;
   background: var(--surface-2);
   position: relative;
 }
@@ -347,7 +391,7 @@ label {
 .shipment-tracking {
   color: var(--text-muted);
   font-size: 0.85rem;
-  font-family: "Consolas", monospace;
+  font-family: var(--font-mono);
 }
 
 .shipment-destination {
@@ -374,7 +418,7 @@ label {
 }
 
 .track-link {
-  color: var(--accent);
+  color: var(--accent-strong);
   font-size: 0.83rem;
   text-decoration: none;
 }
@@ -396,7 +440,7 @@ label {
 }
 
 .icon-button.danger {
-  color: #ff9d9d;
+  color: var(--danger);
 }
 
 .icon-button:hover {
@@ -404,11 +448,6 @@ label {
 }
 
 /* ---- Stock / productos ---- */
-
-.product-card .shipment-image {
-  height: auto;
-  aspect-ratio: 1 / 1;
-}
 
 .product-price {
   font-size: 0.95rem;
@@ -459,8 +498,8 @@ label {
 }
 
 .attr-chip {
-  background: rgba(79, 124, 255, 0.12);
-  color: #8fadff;
+  background: rgba(79, 110, 200, 0.12);
+  color: #3a5bab;
   font-size: 0.75rem;
   font-weight: 600;
   padding: 0.2rem 0.5rem;
@@ -633,11 +672,34 @@ label {
   padding: 0.5rem 0.7rem;
 }
 
+.order-line-thumb {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.order-line-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.order-line-thumb-empty {
+  width: 100%;
+  height: 100%;
+}
+
 .order-line-info {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
   min-width: 0;
+  flex: 1;
 }
 
 .order-line-name {
@@ -671,33 +733,33 @@ label {
 }
 
 .status-pending {
-  background: rgba(154, 161, 175, 0.18);
-  color: #c3c9d4;
+  background: rgba(120, 113, 96, 0.14);
+  color: #6b6353;
 }
 
 .status-sent {
-  background: rgba(79, 124, 255, 0.18);
-  color: #8fadff;
+  background: rgba(58, 91, 171, 0.12);
+  color: #3a5bab;
 }
 
 .status-transit {
-  background: rgba(255, 184, 76, 0.18);
-  color: #ffcb7d;
+  background: rgba(178, 120, 10, 0.14);
+  color: #8a6207;
 }
 
 .status-customs {
-  background: rgba(180, 120, 255, 0.18);
-  color: #cba8ff;
+  background: rgba(126, 74, 189, 0.14);
+  color: #7e4abd;
 }
 
 .status-delivered {
-  background: rgba(70, 200, 130, 0.18);
-  color: #7fe0ac;
+  background: rgba(45, 138, 86, 0.14);
+  color: #2d8a56;
 }
 
 .status-problem {
-  background: rgba(239, 85, 85, 0.18);
-  color: #ff9d9d;
+  background: rgba(178, 58, 44, 0.14);
+  color: var(--danger);
 }
 
 /* ---- Modal ---- */
@@ -947,7 +1009,7 @@ label {
 }
 
 .category-name:hover {
-  color: var(--accent-hover);
+  color: var(--accent-strong);
   text-decoration: underline;
 }
 

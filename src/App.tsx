@@ -286,7 +286,9 @@ export default function App() {
     <div className="app-shell">
       <header className="app-header">
         <div className="header-title">
-          <h1>JerseyID</h1>
+          <h1 className="brand">
+            Jersey<span className="brand-accent">·</span>ID
+          </h1>
           <span className="shipment-count">{countLabel}</span>
         </div>
         <div className="header-actions">
@@ -481,6 +483,7 @@ export default function App() {
                   key={o.id}
                   order={o}
                   shipments={shipments}
+                  products={products}
                   onEdit={() => setEditingOrder(o)}
                   onDelete={() => setPendingDeleteOrder(o)}
                   onMarkLineDelivered={(lineIndex) => handleMarkLineDelivered(o, lineIndex)}

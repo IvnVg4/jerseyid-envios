@@ -1,9 +1,10 @@
-import type { Order, Shipment } from "../types";
+import type { Order, Product, Shipment } from "../types";
 import OrderLineStatusBadge from "./OrderLineStatusBadge";
 
 interface Props {
   order: Order;
   shipments: Shipment[];
+  products: Product[];
   onEdit: () => void;
   onDelete: () => void;
   onMarkLineDelivered: (lineIndex: number) => void;
@@ -14,6 +15,7 @@ interface Props {
 export default function OrderCard({
   order,
   shipments,
+  products,
   onEdit,
   onDelete,
   onMarkLineDelivered,
@@ -51,8 +53,17 @@ export default function OrderCard({
         <div className="order-lines">
           {order.lines.map((line, i) => {
             const shipment = line.shipmentId ? shipments.find((s) => s.id === line.shipmentId) : undefined;
+            const lineProduct = products.find((p) => p.id === line.productId);
+            const personalization = [line.customName, line.customNumber].filter(Boolean).join(" · ");
             return (
               <div key={i} className="order-line-row">
+                <div className="order-line-thumb">
+                  {lineProduct?.images[0] ? (
+                    <img src={lineProduct.images[0]} alt={line.productName} />
+                  ) : (
+                    <div className="order-line-thumb-empty" />
+                  )}
+                </div>
                 <div className="order-line-info">
                   <span className="order-line-name">
                     {line.quantity}× {line.productName} — ${(line.quantity * line.unitPrice).toLocaleString("es-MX")}
@@ -60,6 +71,7 @@ export default function OrderCard({
                   <div className="order-line-meta">
                     <OrderLineStatusBadge status={line.status} />
                     {shipment && <span className="attr-chip">vía envío #{shipment.trackingNumber}</span>}
+                    {personalization && <span className="attr-chip">{personalization}</span>}
                   </div>
                 </div>
                 <div className="order-line-actions">
