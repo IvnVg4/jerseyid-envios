@@ -435,6 +435,7 @@ export default function App() {
           {editing && (
             <ShipmentForm
               initial={editing === "new" ? null : editing}
+              providers={providers}
               onCancel={() => setEditing(null)}
               onSave={handleSave}
             />

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
   MAX_IMAGES_PER_SHIPMENT,
+  Provider,
   SHIPMENT_DESTINATION_TYPES,
   SHIPMENT_ORIGINS,
   SHIPMENT_STATUSES,
@@ -14,12 +15,14 @@ import ImageLightbox from "./ImageLightbox";
 
 interface Props {
   initial?: Shipment | null;
+  providers: Provider[];
   onCancel: () => void;
   onSave: (input: ShipmentInput) => Promise<void>;
 }
 
 const EMPTY: ShipmentInput = {
   provider: "",
+  providerId: "",
   trackingNumber: "",
   trackingLink: "",
   destination: "",
@@ -30,7 +33,7 @@ const EMPTY: ShipmentInput = {
   images: []
 };
 
-export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
+export default function ShipmentForm({ initial, providers, onCancel, onSave }: Props) {
   const [form, setForm] = useState<ShipmentInput>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +191,27 @@ export default function ShipmentForm({ initial, onCancel, onSave }: Props) {
             bajo pedido). Sucursal = ya es tu stock, solo sale hacia un cliente.
           </span>
         </label>
+
+        {form.origin === "Fábrica" && (
+          <label>
+            Proveedor de la mercancía
+            <select
+              value={form.providerId}
+              onChange={(e) => setForm((f) => ({ ...f, providerId: e.target.value }))}
+            >
+              <option value="">Sin proveedor</option>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <span className="field-hint">
+              Se copia automáticamente a los productos que enlaces a este envío, para calcular su
+              costo y ganancia en Ventas sin asignarlo uno por uno.
+            </span>
+          </label>
+        )}
 
         {form.origin === "Fábrica" && (
           <label>

@@ -32,6 +32,7 @@ export function subscribeToShipments(
         return {
           id: docSnap.id,
           provider: data.provider ?? "",
+          providerId: data.providerId ?? "",
           trackingNumber: data.trackingNumber ?? "",
           trackingLink: data.trackingLink ?? "",
           destination: data.destination ?? "",

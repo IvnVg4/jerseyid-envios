@@ -148,6 +148,32 @@ export default function ProductForm({
     );
   }
 
+  /** El proveedor ya no se elige a mano: se copia del envío que se enlace como
+   * "En camino" (el proveedor vive en el envío). Si el producto tiene tallas de
+   * varios envíos, gana el último que se enlace. */
+  function applyShipmentProvider(shipmentId: string) {
+    const shipment = shipments.find((s) => s.id === shipmentId);
+    setForm((f) => ({ ...f, providerId: shipment?.providerId ?? "" }));
+  }
+
+  function setVariantIncomingShipment(index: number, shipmentId: string) {
+    setVariants((vs) =>
+      vs.map((v, i) =>
+        i === index
+          ? {
+              ...v,
+              incoming: {
+                shipmentId,
+                quantity: v.incoming?.quantity ?? 1,
+                reserved: v.incoming?.reserved ?? 0
+              }
+            }
+          : v
+      )
+    );
+    applyShipmentProvider(shipmentId);
+  }
+
   function addPatch() {
     const value = patchInput.trim();
     if (!value) return;
@@ -388,21 +414,15 @@ export default function ProductForm({
           />
         </label>
 
-        <label>
-          Proveedor
-          <select
-            value={form.providerId}
-            onChange={(e) => setForm((f) => ({ ...f, providerId: e.target.value }))}
-          >
-            <option value="">Sin proveedor</option>
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <span className="field-hint">Se usa para calcular el costo y la ganancia en Ventas.</span>
-        </label>
+        <div className="form-field">
+          <span className="form-field-title">
+            Proveedor: {providers.find((p) => p.id === form.providerId)?.name ?? "sin asignar"}
+          </span>
+          <span className="field-hint">
+            Se toma automáticamente del envío que enlaces abajo como "En camino" — no hace falta
+            elegirlo aquí.
+          </span>
+        </div>
 
         {isJersey && (
           <>
@@ -529,15 +549,7 @@ export default function ProductForm({
                           <>
                             <select
                               value={variant.incoming?.shipmentId ?? ""}
-                              onChange={(e) =>
-                                updateVariant(idx, {
-                                  incoming: {
-                                    shipmentId: e.target.value,
-                                    quantity: variant.incoming?.quantity ?? 1,
-                                    reserved: variant.incoming?.reserved ?? 0
-                                  }
-                                })
-                              }
+                              onChange={(e) => setVariantIncomingShipment(idx, e.target.value)}
                             >
                               <option value="" disabled>
                                 Envío...
@@ -617,15 +629,7 @@ export default function ProductForm({
                     Envío *
                     <select
                       value={variants[0].incoming?.shipmentId ?? ""}
-                      onChange={(e) =>
-                        updateVariant(0, {
-                          incoming: {
-                            shipmentId: e.target.value,
-                            quantity: variants[0].incoming?.quantity ?? 1,
-                            reserved: variants[0].incoming?.reserved ?? 0
-                          }
-                        })
-                      }
+                      onChange={(e) => setVariantIncomingShipment(0, e.target.value)}
                       required
                     >
                       <option value="" disabled>
