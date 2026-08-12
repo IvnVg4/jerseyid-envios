@@ -61,6 +61,7 @@ export default function ProductForm({
   const [puNumber, setPuNumber] = useState("");
   const [puQty, setPuQty] = useState(1);
   const [patchInput, setPatchInput] = useState("");
+  const [showManualProvider, setShowManualProvider] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
@@ -77,7 +78,25 @@ export default function ProductForm({
       setVariants([]);
       setPersonalizedUnits([]);
     }
+    setShowManualProvider(false);
   }, [initial]);
+
+  // Reafirma el proveedor cada vez que se abre el formulario o cambian los
+  // envíos: si el envío enlazado como "En camino" cambió de proveedor después
+  // de haberlo enlazado aquí (ej. se corrigió en la pestaña Envíos), esto lo
+  // pone al día sin tener que volver a tocar el selector de envío.
+  useEffect(() => {
+    let resolved: string | undefined;
+    for (const v of variants) {
+      const shipmentId = v.incoming?.shipmentId;
+      if (!shipmentId) continue;
+      const shipment = shipments.find((s) => s.id === shipmentId);
+      if (shipment?.providerId) resolved = shipment.providerId;
+    }
+    if (resolved && resolved !== form.providerId) {
+      setForm((f) => ({ ...f, providerId: resolved! }));
+    }
+  }, [variants, shipments]);
 
   const parentCategories = categories
     .filter((c) => c.parentId === null)
@@ -418,10 +437,40 @@ export default function ProductForm({
           <span className="form-field-title">
             Proveedor: {providers.find((p) => p.id === form.providerId)?.name ?? "sin asignar"}
           </span>
-          <span className="field-hint">
-            Se toma automáticamente del envío que enlaces abajo como "En camino" — no hace falta
-            elegirlo aquí.
-          </span>
+          {!showManualProvider ? (
+            <>
+              <span className="field-hint">
+                Se toma automáticamente del envío que enlaces abajo como "En camino" — no hace falta
+                elegirlo aquí.
+              </span>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => setShowManualProvider(true)}
+              >
+                ¿No es el correcto? Corregirlo a mano
+              </button>
+            </>
+          ) : (
+            <>
+              <select
+                value={form.providerId}
+                onChange={(e) => setForm((f) => ({ ...f, providerId: e.target.value }))}
+              >
+                <option value="">Sin proveedor</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <span className="field-hint">
+                Para corregir un producto de antes de que esto fuera automático, o uno cuyo envío
+                ya llegó con el proveedor equivocado. Si vuelves a enlazar una talla a un envío,
+                el proveedor de ese envío manda de nuevo.
+              </span>
+            </>
+          )}
         </div>
 
         {isJersey && (

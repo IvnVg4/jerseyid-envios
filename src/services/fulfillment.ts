@@ -38,7 +38,14 @@ export async function applyShipmentDelivery(
       };
     });
 
-    batch.update(doc(db, "products", product.id), { variants, updatedAt: serverTimestamp() });
+    const update: Record<string, unknown> = { variants, updatedAt: serverTimestamp() };
+    // Al llegar el envío es cuando se pierde la referencia a de qué envío venía
+    // esa talla (incoming pasa a null arriba): aprovechamos este momento para
+    // dejar fijo el proveedor vigente del envío en el producto, por si se asignó
+    // o cambió después de enlazar el producto a este envío.
+    if (shipment.providerId) update.providerId = shipment.providerId;
+
+    batch.update(doc(db, "products", product.id), update);
     hasWrites = true;
   }
 
