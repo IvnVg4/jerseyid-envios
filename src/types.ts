@@ -24,10 +24,13 @@ export type ShipmentDestinationType = (typeof SHIPMENT_DESTINATION_TYPES)[number
 
 export interface Shipment {
   id: string;
+  /** Nombre del proveedor (copiado de `providerId` al elegirlo; se guarda también como
+   * texto para no depender de un join al mostrar el envío). */
   provider: string;
-  /** Proveedor de mercancía (de la pestaña Proveedores) del que viene este envío.
-   * Se copia automáticamente a los productos que se enlacen a este envío, para
-   * calcular su costo/ganancia en Ventas sin tener que asignarlo uno por uno. */
+  /** Proveedor de mercancía (de la pestaña Proveedores) del que viene este envío — se
+   * elige de una lista, no se escribe. Se copia automáticamente a los productos que se
+   * enlacen a este envío, para calcular su costo/ganancia en Ventas sin asignarlo uno
+   * por uno. */
   providerId: string;
   trackingNumber: string;
   trackingLink: string;

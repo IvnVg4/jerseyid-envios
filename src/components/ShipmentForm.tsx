@@ -43,11 +43,25 @@ export default function ShipmentForm({ initial, providers, onCancel, onSave }: P
   useEffect(() => {
     if (initial) {
       const { id, createdAt, updatedAt, ...rest } = initial;
+      // Envíos guardados antes de que "Proveedor" fuera un selector traen el nombre
+      // como texto suelto sin providerId; si ese texto coincide con un proveedor ya
+      // dado de alta, lo preseleccionamos para no obligar a volver a elegirlo.
+      if (!rest.providerId && rest.provider) {
+        const match = providers.find(
+          (p) => p.name.trim().toLowerCase() === rest.provider.trim().toLowerCase()
+        );
+        if (match) rest.providerId = match.id;
+      }
       setForm(rest);
     } else {
       setForm(EMPTY);
     }
-  }, [initial]);
+  }, [initial, providers]);
+
+  function handleProviderChange(providerId: string) {
+    const provider = providers.find((p) => p.id === providerId);
+    setForm((f) => ({ ...f, providerId, provider: provider?.name ?? "" }));
+  }
 
   async function handleImagesChange(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -71,7 +85,7 @@ export default function ShipmentForm({ initial, providers, onCancel, onSave }: P
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!form.provider.trim() || !form.trackingNumber.trim()) {
+    if (!form.providerId || !form.trackingNumber.trim()) {
       setError("Proveedor y número de seguimiento son obligatorios.");
       return;
     }
@@ -137,12 +151,28 @@ export default function ShipmentForm({ initial, providers, onCancel, onSave }: P
 
         <label>
           Proveedor *
-          <input
-            value={form.provider}
-            onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))}
-            placeholder="Ej. Envíos Rápidos SA"
-            required
-          />
+          <select value={form.providerId} onChange={(e) => handleProviderChange(e.target.value)} required>
+            <option value="" disabled>
+              Selecciona un proveedor...
+            </option>
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {providers.length === 0 ? (
+            <span className="field-hint">
+              No hay proveedores todavía. Crea uno primero en la pestaña Proveedores.
+            </span>
+          ) : (
+            form.origin === "Fábrica" && (
+              <span className="field-hint">
+                Se copia automáticamente a los productos que enlaces a este envío, para calcular su
+                costo y ganancia en Ventas sin asignarlo uno por uno.
+              </span>
+            )
+          )}
         </label>
 
         <label>
@@ -191,27 +221,6 @@ export default function ShipmentForm({ initial, providers, onCancel, onSave }: P
             bajo pedido). Sucursal = ya es tu stock, solo sale hacia un cliente.
           </span>
         </label>
-
-        {form.origin === "Fábrica" && (
-          <label>
-            Proveedor de la mercancía
-            <select
-              value={form.providerId}
-              onChange={(e) => setForm((f) => ({ ...f, providerId: e.target.value }))}
-            >
-              <option value="">Sin proveedor</option>
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <span className="field-hint">
-              Se copia automáticamente a los productos que enlaces a este envío, para calcular su
-              costo y ganancia en Ventas sin asignarlo uno por uno.
-            </span>
-          </label>
-        )}
 
         {form.origin === "Fábrica" && (
           <label>
