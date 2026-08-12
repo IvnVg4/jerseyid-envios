@@ -33,6 +33,8 @@ import {
   markAllOrderLinesDelivered,
   markOrderLineDelivered,
   removeOrderLine,
+  revertAllOrderLinesDelivered,
+  revertOrderLineDelivered,
   subscribeToOrders,
   updateOrder
 } from "./services/orders";
@@ -264,6 +266,14 @@ export default function App() {
 
   async function handleMarkAllDelivered(order: Order) {
     await markAllOrderLinesDelivered(order);
+  }
+
+  async function handleRevertLineDelivered(order: Order, lineIndex: number) {
+    await revertOrderLineDelivered(order, lineIndex);
+  }
+
+  async function handleRevertAllDelivered(order: Order) {
+    await revertAllOrderLinesDelivered(order);
   }
 
   async function handleRemoveOrderLine(order: Order, lineIndex: number) {
@@ -540,6 +550,8 @@ export default function App() {
                   onDelete={() => setPendingDeleteOrder(o)}
                   onMarkLineDelivered={(lineIndex) => handleMarkLineDelivered(o, lineIndex)}
                   onMarkAllDelivered={() => handleMarkAllDelivered(o)}
+                  onRevertLineDelivered={(lineIndex) => handleRevertLineDelivered(o, lineIndex)}
+                  onRevertAllDelivered={() => handleRevertAllDelivered(o)}
                   onRemoveLine={(lineIndex) => handleRemoveOrderLine(o, lineIndex)}
                 />
               ))}

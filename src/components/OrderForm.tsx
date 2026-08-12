@@ -194,6 +194,18 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
     }));
   }
 
+  /** Al quitar "Entregado": si la línea venía de un envío, regresa a "Listo para
+   * entregar"; si era venta directa de stock, regresa a "Vendida". No mueve stock
+   * en ningún caso (ambos extremos ya están fuera del conteo general). */
+  function revertLineDelivered(index: number) {
+    setForm((f) => ({
+      ...f,
+      lines: f.lines.map((l, i) =>
+        i === index ? { ...l, status: l.shipmentId ? "Listo para entregar" : "Vendida" } : l
+      )
+    }));
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -488,9 +500,13 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
                     </div>
                   </div>
                   <div className="order-line-actions">
-                    {line.status !== "Entregado" && (
+                    {line.status !== "Entregado" ? (
                       <button type="button" className="secondary" onClick={() => markLineDelivered(i)}>
                         Marcar entregado
+                      </button>
+                    ) : (
+                      <button type="button" className="secondary" onClick={() => revertLineDelivered(i)}>
+                        Quitar entregado
                       </button>
                     )}
                     <button

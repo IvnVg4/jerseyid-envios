@@ -236,6 +236,36 @@ export async function markAllOrderLinesDelivered(order: Order) {
   });
 }
 
+/** A qué status vuelve una línea al quitarle "Entregado": si venía de un envío
+ * (Bajo pedido -> Listo para entregar/Entregado al llegar el envío), regresa a
+ * "Listo para entregar"; si era una venta directa de stock, regresa a "Vendida".
+ * Ninguno de los dos casos mueve inventario: ambos extremos ya están fuera del
+ * conteo general (ver computeSoldDelta/computeReservedDelta), es solo revertir
+ * el estado. */
+function undeliveredStatus(line: OrderLine): OrderLine["status"] {
+  return line.shipmentId ? "Listo para entregar" : "Vendida";
+}
+
+export async function revertOrderLineDelivered(order: Order, lineIndex: number) {
+  const lines = order.lines.map((line, i) =>
+    i === lineIndex && line.status === "Entregado" ? { ...line, status: undeliveredStatus(line) } : line
+  );
+  await updateDoc(doc(db, ORDERS, order.id), {
+    lines,
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function revertAllOrderLinesDelivered(order: Order) {
+  const lines = order.lines.map((line) =>
+    line.status === "Entregado" ? { ...line, status: undeliveredStatus(line) } : line
+  );
+  await updateDoc(doc(db, ORDERS, order.id), {
+    lines,
+    updatedAt: serverTimestamp()
+  });
+}
+
 /** Quita una línea del pedido (ej. "quitar apartado" de una línea "Bajo pedido") y libera el stock/reserva que tenía. */
 export async function removeOrderLine(order: Order, lineIndex: number, products: Product[]) {
   const line = order.lines[lineIndex];

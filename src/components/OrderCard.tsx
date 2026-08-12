@@ -9,6 +9,8 @@ interface Props {
   onDelete: () => void;
   onMarkLineDelivered: (lineIndex: number) => void;
   onMarkAllDelivered: () => void;
+  onRevertLineDelivered: (lineIndex: number) => void;
+  onRevertAllDelivered: () => void;
   onRemoveLine: (lineIndex: number) => void;
 }
 
@@ -20,6 +22,8 @@ export default function OrderCard({
   onDelete,
   onMarkLineDelivered,
   onMarkAllDelivered,
+  onRevertLineDelivered,
+  onRevertAllDelivered,
   onRemoveLine
 }: Props) {
   const orderTotal = order.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
@@ -95,7 +99,7 @@ export default function OrderCard({
                       Quitar apartado
                     </button>
                   )}
-                  {line.status !== "Entregado" && (
+                  {line.status !== "Entregado" ? (
                     <button
                       type="button"
                       className="icon-button"
@@ -103,6 +107,15 @@ export default function OrderCard({
                       title="Marcar esta línea como entregada"
                     >
                       Marcar entregado
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => onRevertLineDelivered(i)}
+                      title="Quitar la marca de entregado de esta línea"
+                    >
+                      Quitar entregado
                     </button>
                   )}
                 </div>
@@ -131,16 +144,26 @@ export default function OrderCard({
         </div>
 
         <div className="shipment-actions">
-          {hasPendingDelivery && order.lines.length > 1 && (
-            <button
-              type="button"
-              className="icon-button"
-              onClick={onMarkAllDelivered}
-              title="Marcar todos los productos de este pedido como entregados"
-            >
-              Marcar todo entregado
-            </button>
-          )}
+          {order.lines.length > 1 &&
+            (hasPendingDelivery ? (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={onMarkAllDelivered}
+                title="Marcar todos los productos de este pedido como entregados"
+              >
+                Marcar todo entregado
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={onRevertAllDelivered}
+                title="Quitar la marca de entregado de todos los productos de este pedido"
+              >
+                Quitar todo entregado
+              </button>
+            ))}
           <div className="spacer" />
           <button className="icon-button" onClick={onEdit} title="Editar">
             Editar
