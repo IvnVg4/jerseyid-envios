@@ -48,10 +48,10 @@ export type ShipmentInput = Omit<Shipment, "id" | "createdAt" | "updatedAt">;
 
 // ---- Categorías ----
 
-// Categorías totalmente editables desde la app (apartado "Categorías"). Una
-// categoría con parentId null es una categoría padre; el producto siempre
-// guarda el *nombre* (no el id) en `product.type`, igual que antes cuando los
-// tipos eran fijos, para no romper los productos ya guardados.
+// Categorías totalmente editables desde la app (apartado "Categorías"): son el
+// catálogo de tipos de producto (Jersey, Balón, Chamarra, ...) y también la
+// llave con la que un proveedor cotiza cada tipo (ver `ProviderPriceEntry`).
+// Una categoría con parentId null es una categoría padre.
 export interface Category {
   id: string;
   name: string;
@@ -114,7 +114,10 @@ export interface PersonalizedUnit {
 
 export interface Product {
   id: string;
-  type: string;
+  /** Referencia a `Category.id` (nunca al nombre: así renombrar una categoría no
+   * desconecta los productos que ya la usan ni los precios de proveedor). "" si
+   * el producto quedó sin categoría (ej. su categoría se borró). */
+  categoryId: string;
   name: string;
   sleeve: JerseySleeve | "";
   version: JerseyVersion | "";
@@ -213,12 +216,13 @@ export type OrderInput = Omit<Order, "id" | "createdAt" | "updatedAt">;
 // ---- Proveedores ----
 
 /**
- * Precio (costo) que cobra un proveedor por un tipo de producto. `sleeve`/`version`
- * solo aplican si la categoría es tipo jersey (isJerseyLike); si no, quedan "" y el
- * precio aplica a toda la categoría.
+ * Precio (costo) que cobra un proveedor por un tipo de producto. Referencia
+ * `Category.id` (no el nombre) para no desconectarse si la categoría se
+ * renombra. `sleeve`/`version` solo aplican si la categoría es tipo jersey
+ * (isJerseyLike); si no, quedan "" y el precio aplica a toda la categoría.
  */
 export interface ProviderPriceEntry {
-  categoryName: string;
+  categoryId: string;
   sleeve: JerseySleeve | "";
   version: JerseyVersion | "";
   cost: number;
@@ -227,7 +231,15 @@ export interface ProviderPriceEntry {
 export interface Provider {
   id: string;
   name: string;
+  /** Número de WhatsApp del proveedor (con o sin lada), para contactarlo directo. */
+  whatsapp: string;
   prices: ProviderPriceEntry[];
+  /** Costo extra que cobra este proveedor por personalizar una pieza (nombre/número),
+   * aplicado por línea de pedido cuando el cliente pide esa personalización. */
+  personalizationCost: number;
+  /** Costo extra que cobra este proveedor por cada parche agregado a una pieza,
+   * multiplicado por la cantidad de parches del producto (`Product.patches`). */
+  patchCost: number;
   createdAt: number;
   updatedAt: number;
 }

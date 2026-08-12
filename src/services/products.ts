@@ -59,7 +59,10 @@ export function subscribeToProducts(
         const data = docSnap.data();
         return {
           id: docSnap.id,
-          type: data.type ?? "Jersey",
+          // "" hasta que se corrija sola (ver reconcileProductCategories en
+          // sync.ts) cualquier producto que todavía traiga el `type` (nombre)
+          // viejo en vez del `categoryId` actual.
+          categoryId: data.categoryId ?? "",
           name: data.name ?? "",
           sleeve: data.sleeve ?? "",
           version: data.version ?? "",

@@ -11,7 +11,7 @@ import {
   updateDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Provider, ProviderInput } from "../types";
+import type { Provider, ProviderInput, ProviderPriceEntry } from "../types";
 
 const COLLECTION = "providers";
 
@@ -29,10 +29,22 @@ export function subscribeToProviders(
     (snapshot) => {
       const providers: Provider[] = snapshot.docs.map((docSnap) => {
         const data = docSnap.data();
+        const prices = Array.isArray(data.prices) ? data.prices : [];
         return {
           id: docSnap.id,
           name: data.name ?? "",
-          prices: data.prices ?? [],
+          whatsapp: data.whatsapp ?? "",
+          // "" hasta que se corrija sola (ver reconcileProviderCategoryPrices en
+          // sync.ts) cualquier precio que todavía traiga el `categoryName` viejo
+          // en vez del `categoryId` actual.
+          prices: prices.map((p: Partial<ProviderPriceEntry>) => ({
+            categoryId: p.categoryId ?? "",
+            sleeve: p.sleeve ?? "",
+            version: p.version ?? "",
+            cost: p.cost ?? 0
+          })),
+          personalizationCost: data.personalizationCost ?? 0,
+          patchCost: data.patchCost ?? 0,
           createdAt: toMillis(data.createdAt),
           updatedAt: toMillis(data.updatedAt)
         };

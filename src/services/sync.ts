@@ -1,6 +1,6 @@
-import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, doc, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Product, Provider, Shipment } from "../types";
+import type { Category, Product, Provider, Shipment } from "../types";
 
 /**
  * Corrige en segundo plano el `providerId` de cualquier envío que todavía no lo
@@ -53,6 +53,77 @@ export async function reconcileProductProviders(products: Product[], shipments: 
     if (resolved && resolved !== product.providerId) {
       batch.update(doc(db, "products", product.id), {
         providerId: resolved,
+        updatedAt: serverTimestamp()
+      });
+      hasWrites = true;
+    }
+  }
+
+  if (hasWrites) await batch.commit();
+}
+
+/**
+ * Corrige en segundo plano el `categoryId` de cualquier producto guardado antes de
+ * que las categorías tuvieran id propio (cuando el tipo de producto se guardaba
+ * como el *nombre* de la categoría en texto suelto) — empareja ese nombre contra
+ * las categorías actuales y, si hay coincidencia exacta, fija el `categoryId`.
+ * Lee los productos directo de Firestore (no del snapshot ya tipado) porque el
+ * nombre heredado ya no es parte del modelo `Product`; solo sirve como puente de
+ * migración para los documentos viejos.
+ */
+export async function reconcileProductCategories(categories: Category[]) {
+  if (categories.length === 0) return;
+  const snapshot = await getDocs(collection(db, "products"));
+  const batch = writeBatch(db);
+  let hasWrites = false;
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data();
+    if (data.categoryId) continue;
+    const legacyName = typeof data.type === "string" ? data.type.trim().toLowerCase() : "";
+    if (!legacyName) continue;
+    const match = categories.find((c) => c.name.trim().toLowerCase() === legacyName);
+    if (!match) continue;
+    batch.update(doc(db, "products", docSnap.id), {
+      categoryId: match.id,
+      updatedAt: serverTimestamp()
+    });
+    hasWrites = true;
+  }
+
+  if (hasWrites) await batch.commit();
+}
+
+/**
+ * Igual que `reconcileProductCategories` pero para los precios de proveedor:
+ * los guardados antes de este cambio traen `categoryName` (texto) en cada
+ * entrada de `Provider.prices` en vez de `categoryId`. Reemplaza cada entrada
+ * que logre emparejar por nombre; las que no coincidan con ninguna categoría
+ * actual se dejan igual (se pueden corregir/quitar a mano desde Proveedores).
+ */
+export async function reconcileProviderCategoryPrices(categories: Category[]) {
+  if (categories.length === 0) return;
+  const snapshot = await getDocs(collection(db, "providers"));
+  const batch = writeBatch(db);
+  let hasWrites = false;
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data();
+    const prices: Record<string, unknown>[] = Array.isArray(data.prices) ? data.prices : [];
+    let changed = false;
+    const nextPrices = prices.map((p) => {
+      if (p.categoryId) return p;
+      const legacyName = typeof p.categoryName === "string" ? p.categoryName.trim().toLowerCase() : "";
+      if (!legacyName) return p;
+      const match = categories.find((c) => c.name.trim().toLowerCase() === legacyName);
+      if (!match) return p;
+      changed = true;
+      const { categoryName, ...rest } = p;
+      return { ...rest, categoryId: match.id };
+    });
+    if (changed) {
+      batch.update(doc(db, "providers", docSnap.id), {
+        prices: nextPrices,
         updatedAt: serverTimestamp()
       });
       hasWrites = true;

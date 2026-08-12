@@ -12,12 +12,18 @@ import type { OrderLine, Product, Provider, Shipment } from "../types";
  * pieza puntual, así que se usa el proveedor vigente del producto como mejor
  * referencia disponible.
  *
+ * El costo base (por `product.categoryId` + manga/versión) se ajusta con lo que
+ * ese mismo proveedor cobra extra por los parches ya puestos en el producto y,
+ * si esta línea en particular pidió personalización (nombre/número), por
+ * personalizarla — ambos definidos por proveedor en `Provider.patchCost` /
+ * `Provider.personalizationCost`, igual que el resto de sus precios.
+ *
  * Devuelve `null` (nunca 0) cuando el costo no se puede determinar — sin proveedor
  * asignado, o sin un precio registrado para esa categoría/manga/versión — para que
  * quien llama pueda distinguir "no sabemos el costo" de "cuesta gratis".
  */
 export function resolveUnitCost(
-  line: Pick<OrderLine, "productId" | "shipmentId">,
+  line: Pick<OrderLine, "productId" | "shipmentId" | "customName" | "customNumber">,
   products: Product[],
   providers: Provider[],
   shipments: Shipment[]
@@ -34,9 +40,15 @@ export function resolveUnitCost(
 
   const entry = provider.prices.find(
     (p) =>
-      p.categoryName === product.type &&
+      p.categoryId === product.categoryId &&
       p.sleeve === (product.sleeve || "") &&
       p.version === (product.version || "")
   );
-  return entry ? entry.cost : null;
+  if (!entry) return null;
+
+  const patchesCost = product.patches.length * (provider.patchCost || 0);
+  const isPersonalized = Boolean(line.customName || line.customNumber);
+  const personalizationCost = isPersonalized ? provider.personalizationCost || 0 : 0;
+
+  return entry.cost + patchesCost + personalizationCost;
 }

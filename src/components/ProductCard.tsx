@@ -1,9 +1,10 @@
 import { useState } from "react";
-import type { Product, Shipment } from "../types";
+import type { Category, Product, Shipment } from "../types";
 import ImageLightbox from "./ImageLightbox";
 
 interface Props {
   product: Product;
+  categories: Category[];
   shipments: Shipment[];
   onEdit: () => void;
   onDelete: () => void;
@@ -15,8 +16,9 @@ const VARIANT_STATUS_CLASS: Record<Product["variants"][number]["stockStatus"], s
   "En stock": "stock-ok"
 };
 
-export default function ProductCard({ product, shipments, onEdit, onDelete }: Props) {
+export default function ProductCard({ product, categories, shipments, onEdit, onDelete }: Props) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const categoryName = categories.find((c) => c.id === product.categoryId)?.name ?? "Sin categoría";
   const hasJerseyAttrs = Boolean(
     product.sleeve || product.version || product.personalized || product.patches.length > 0
   );
@@ -56,7 +58,7 @@ export default function ProductCard({ product, shipments, onEdit, onDelete }: Pr
       <div className="shipment-body">
         <div className="shipment-header">
           <h3>{product.name}</h3>
-          <span className="type-badge">{product.type}</span>
+          <span className="type-badge">{categoryName}</span>
         </div>
 
         <div className="product-price">${product.price.toLocaleString("es-MX")}</div>

@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
+  Category,
   EMPTY_SHIPPING_ADDRESS,
   ORDER_FULFILLMENT_TYPES,
   Order,
@@ -17,6 +18,7 @@ import OrderLineStatusBadge from "./OrderLineStatusBadge";
 interface Props {
   initial?: Order | null;
   products: Product[];
+  categories: Category[];
   shipments: Shipment[];
   onCancel: () => void;
   onSave: (input: OrderInput) => Promise<void>;
@@ -33,8 +35,9 @@ const EMPTY: OrderInput = {
   notes: ""
 };
 
-function productLabel(product: Product) {
-  const attrs = [product.type, product.sleeve, product.version].filter(Boolean).join(" · ");
+function productLabel(product: Product, categories: Category[]) {
+  const categoryName = categories.find((c) => c.id === product.categoryId)?.name ?? "";
+  const attrs = [categoryName, product.sleeve, product.version].filter(Boolean).join(" · ");
   return `${product.name} (${attrs})`;
 }
 
@@ -79,7 +82,7 @@ function availableQuantity(
   return 0;
 }
 
-export default function OrderForm({ initial, products, shipments, onCancel, onSave }: Props) {
+export default function OrderForm({ initial, products, categories, shipments, onCancel, onSave }: Props) {
   const [form, setForm] = useState<OrderInput>(EMPTY);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedSize, setSelectedSize] = useState<ProductSize | "">("");
@@ -392,7 +395,7 @@ export default function OrderForm({ initial, products, shipments, onCancel, onSa
               <option value="">Selecciona un producto...</option>
               {sellableProducts.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {productLabel(p)}
+                  {productLabel(p, categories)}
                 </option>
               ))}
             </select>

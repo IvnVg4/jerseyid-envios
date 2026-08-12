@@ -1,7 +1,6 @@
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
@@ -13,9 +12,10 @@ import {
   writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Category, CategoryInput } from "../types";
+import type { Category, CategoryInput, Provider } from "../types";
 
 const COLLECTION = "categories";
+const PROVIDERS_COLLECTION = "providers";
 
 const DEFAULT_CATEGORIES: CategoryInput[] = [
   { name: "Jersey", parentId: null, usesSizes: true, isJerseyLike: true },
@@ -81,16 +81,34 @@ export async function updateCategory(id: string, input: Partial<CategoryInput>) 
   });
 }
 
-export async function deleteCategory(id: string) {
-  await deleteDoc(doc(db, COLLECTION, id));
+/** Quita, dentro del mismo batch, cualquier precio de proveedor que apunte a una
+ * categoría que se está borrando — si no, quedarían precios huérfanos que nunca
+ * se pueden volver a editar desde el formulario (la categoría ya no aparece ahí). */
+function purgeCategoryPrices(batch: ReturnType<typeof writeBatch>, categoryId: string, providers: Provider[]) {
+  for (const provider of providers) {
+    if (!provider.prices.some((p) => p.categoryId === categoryId)) continue;
+    batch.update(doc(db, PROVIDERS_COLLECTION, provider.id), {
+      prices: provider.prices.filter((p) => p.categoryId !== categoryId),
+      updatedAt: serverTimestamp()
+    });
+  }
+}
+
+export async function deleteCategory(id: string, providers: Provider[]) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, COLLECTION, id));
+  purgeCategoryPrices(batch, id, providers);
+  await batch.commit();
 }
 
 /** Borra una categoría padre junto con todas sus subcategorías. */
-export async function deleteCategoryWithChildren(id: string, categories: Category[]) {
+export async function deleteCategoryWithChildren(id: string, categories: Category[], providers: Provider[]) {
   const batch = writeBatch(db);
   batch.delete(doc(db, COLLECTION, id));
+  purgeCategoryPrices(batch, id, providers);
   for (const child of categories.filter((c) => c.parentId === id)) {
     batch.delete(doc(db, COLLECTION, child.id));
+    purgeCategoryPrices(batch, child.id, providers);
   }
   await batch.commit();
 }

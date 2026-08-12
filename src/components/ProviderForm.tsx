@@ -17,11 +17,17 @@ interface Props {
   onSave: (input: ProviderInput) => Promise<void>;
 }
 
-const EMPTY: ProviderInput = { name: "", prices: [] };
+const EMPTY: ProviderInput = {
+  name: "",
+  whatsapp: "",
+  prices: [],
+  personalizationCost: 0,
+  patchCost: 0
+};
 
 export default function ProviderForm({ initial, categories, onCancel, onSave }: Props) {
   const [form, setForm] = useState<ProviderInput>(EMPTY);
-  const [priceCategory, setPriceCategory] = useState("");
+  const [priceCategoryId, setPriceCategoryId] = useState("");
   const [priceSleeve, setPriceSleeve] = useState<JerseySleeve | "">("");
   const [priceVersion, setPriceVersion] = useState<JerseyVersion | "">("");
   const [priceCost, setPriceCost] = useState(0);
@@ -37,14 +43,14 @@ export default function ProviderForm({ initial, categories, onCancel, onSave }: 
     }
   }, [initial]);
 
-  const categoryOptions = [...new Set(categories.map((c) => c.name))].sort((a, b) =>
-    a.localeCompare(b)
-  );
-  const priceCategoryIsJersey = categories.find((c) => c.name === priceCategory)?.isJerseyLike ?? false;
+  const categoryOptions = categories.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const categoryName = (categoryId: string) =>
+    categories.find((c) => c.id === categoryId)?.name ?? "Categoría eliminada";
+  const priceCategoryIsJersey = categories.find((c) => c.id === priceCategoryId)?.isJerseyLike ?? false;
 
   function addPrice() {
     setError(null);
-    if (!priceCategory) {
+    if (!priceCategoryId) {
       setError("Elige una categoría para el precio.");
       return;
     }
@@ -59,15 +65,15 @@ export default function ProviderForm({ initial, categories, onCancel, onSave }: 
     const sleeve = priceCategoryIsJersey ? priceSleeve : "";
     const version = priceCategoryIsJersey ? priceVersion : "";
     const exists = form.prices.some(
-      (p) => p.categoryName === priceCategory && p.sleeve === sleeve && p.version === version
+      (p) => p.categoryId === priceCategoryId && p.sleeve === sleeve && p.version === version
     );
     if (exists) {
       setError("Ya hay un precio para esa combinación. Quítalo primero si quieres cambiarlo.");
       return;
     }
-    const entry: ProviderPriceEntry = { categoryName: priceCategory, sleeve, version, cost: priceCost };
+    const entry: ProviderPriceEntry = { categoryId: priceCategoryId, sleeve, version, cost: priceCost };
     setForm((f) => ({ ...f, prices: [...f.prices, entry] }));
-    setPriceCategory("");
+    setPriceCategoryId("");
     setPriceSleeve("");
     setPriceVersion("");
     setPriceCost(0);
@@ -113,6 +119,17 @@ export default function ProviderForm({ initial, categories, onCancel, onSave }: 
           />
         </label>
 
+        <label>
+          WhatsApp
+          <input
+            type="tel"
+            value={form.whatsapp}
+            onChange={(e) => setForm((f) => ({ ...f, whatsapp: e.target.value }))}
+            placeholder="Ej. 9991234567"
+          />
+          <span className="field-hint">Con lada, sin espacios ni guiones — se usa para abrir el chat directo.</span>
+        </label>
+
         <div className="form-field">
           <span className="form-field-title">Precios por tipo de producto</span>
           {form.prices.length > 0 && (
@@ -120,7 +137,7 @@ export default function ProviderForm({ initial, categories, onCancel, onSave }: 
               {form.prices.map((p, i) => (
                 <div key={i} className="provider-price-row">
                   <span>
-                    {[p.categoryName, p.sleeve, p.version].filter(Boolean).join(" · ")}
+                    {[categoryName(p.categoryId), p.sleeve, p.version].filter(Boolean).join(" · ")}
                   </span>
                   <span className="provider-price-cost">${p.cost.toLocaleString("es-MX")}</span>
                   <button
@@ -137,11 +154,11 @@ export default function ProviderForm({ initial, categories, onCancel, onSave }: 
           )}
 
           <div className="provider-price-add">
-            <select value={priceCategory} onChange={(e) => setPriceCategory(e.target.value)}>
+            <select value={priceCategoryId} onChange={(e) => setPriceCategoryId(e.target.value)}>
               <option value="">Categoría...</option>
-              {categoryOptions.map((name) => (
-                <option key={name} value={name}>
-                  {name}
+              {categoryOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
             </select>
@@ -188,6 +205,38 @@ export default function ProviderForm({ initial, categories, onCancel, onSave }: 
           <span className="field-hint">
             Un precio por categoría (y, si es jersey, por manga/versión). Se usa para calcular el
             costo y la ganancia en Ventas.
+          </span>
+        </div>
+
+        <div className="form-field">
+          <span className="form-field-title">Costos extra (jerseys)</span>
+          <div className="provider-extra-costs">
+            <label>
+              Personalización (nombre/número)
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.personalizationCost || ""}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, personalizationCost: Number(e.target.value) }))
+                }
+              />
+            </label>
+            <label>
+              Por parche
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.patchCost || ""}
+                onChange={(e) => setForm((f) => ({ ...f, patchCost: Number(e.target.value) }))}
+              />
+            </label>
+          </div>
+          <span className="field-hint">
+            Lo que este proveedor cobra extra por personalizar una pieza y por cada parche que se le
+            agregue — se suma sobre el precio base al calcular el costo en Ventas.
           </span>
         </div>
 

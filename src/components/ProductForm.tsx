@@ -30,7 +30,7 @@ interface Props {
 type FormState = Omit<ProductInput, "variants" | "personalizedUnits">;
 
 const EMPTY_FORM: FormState = {
-  type: "",
+  categoryId: "",
   name: "",
   sleeve: "",
   version: "",
@@ -104,20 +104,20 @@ export default function ProductForm({
   const childrenOf = (parentId: string) =>
     categories.filter((c) => c.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
 
-  const selectedCategory = categories.find((c) => c.name === form.type);
+  const selectedCategory = categories.find((c) => c.id === form.categoryId);
   const isJersey = selectedCategory?.isJerseyLike ?? false;
   const needsSize = selectedCategory?.usesSizes ?? false;
   const incomingShipments = shipments.filter(
     (s) => s.origin === "Fábrica" && s.status !== "Entregado"
   );
 
-  function handleTypeChange(typeName: string) {
-    const category = categories.find((c) => c.name === typeName);
+  function handleCategoryChange(categoryId: string) {
+    const category = categories.find((c) => c.id === categoryId);
     const nextIsJersey = category?.isJerseyLike ?? false;
     const nextNeedsSize = category?.usesSizes ?? false;
     setForm((f) => ({
       ...f,
-      type: typeName,
+      categoryId,
       sleeve: nextIsJersey ? f.sleeve : "",
       version: nextIsJersey ? f.version : "",
       personalized: nextIsJersey ? f.personalized : false,
@@ -275,7 +275,7 @@ export default function ProductForm({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!form.type) {
+    if (!form.categoryId) {
       setError("Elige una categoría.");
       return;
     }
@@ -379,7 +379,7 @@ export default function ProductForm({
 
         <label>
           Categoría *
-          <select value={form.type} onChange={(e) => handleTypeChange(e.target.value)} required>
+          <select value={form.categoryId} onChange={(e) => handleCategoryChange(e.target.value)} required>
             <option value="" disabled>
               Selecciona...
             </option>
@@ -387,16 +387,16 @@ export default function ProductForm({
               const children = childrenOf(parent.id);
               if (children.length === 0) {
                 return (
-                  <option key={parent.id} value={parent.name}>
+                  <option key={parent.id} value={parent.id}>
                     {parent.name}
                   </option>
                 );
               }
               return (
                 <optgroup key={parent.id} label={parent.name}>
-                  <option value={parent.name}>{parent.name} (general)</option>
+                  <option value={parent.id}>{parent.name} (general)</option>
                   {children.map((child) => (
-                    <option key={child.id} value={child.name}>
+                    <option key={child.id} value={child.id}>
                       {child.name}
                     </option>
                   ))}

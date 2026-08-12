@@ -53,7 +53,12 @@ import {
   updateProvider
 } from "./services/providers";
 import { applyShipmentDelivery } from "./services/fulfillment";
-import { reconcileProductProviders, reconcileShipmentProviders } from "./services/sync";
+import {
+  reconcileProductCategories,
+  reconcileProductProviders,
+  reconcileProviderCategoryPrices,
+  reconcileShipmentProviders
+} from "./services/sync";
 import Login from "./components/Login";
 import ShipmentCard from "./components/ShipmentCard";
 import ShipmentForm from "./components/ShipmentForm";
@@ -98,6 +103,8 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryLoadError, setCategoryLoadError] = useState<string | null>(null);
   const seededCategories = useRef(false);
+  const migratedProductCategories = useRef(false);
+  const migratedProviderCategoryPrices = useRef(false);
 
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerLoadError, setProviderLoadError] = useState<string | null>(null);
@@ -161,6 +168,26 @@ export default function App() {
     reconcileProductProviders(products, shipments).catch(() => {});
   }, [user, products, shipments]);
 
+  // Migración: productos y precios de proveedor guardados antes de que las
+  // categorías tuvieran id propio traen el tipo/categoría como nombre en texto
+  // suelto. Se corrige sola una vez por sesión en cuanto hay categorías cargadas
+  // (mismo patrón que el self-heal de proveedor de arriba).
+  useEffect(() => {
+    if (!user || categories.length === 0 || migratedProductCategories.current) return;
+    migratedProductCategories.current = true;
+    reconcileProductCategories(categories).catch(() => {
+      migratedProductCategories.current = false;
+    });
+  }, [user, categories]);
+
+  useEffect(() => {
+    if (!user || categories.length === 0 || migratedProviderCategoryPrices.current) return;
+    migratedProviderCategoryPrices.current = true;
+    reconcileProviderCategoryPrices(categories).catch(() => {
+      migratedProviderCategoryPrices.current = false;
+    });
+  }, [user, categories]);
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return shipments.filter((s) => {
@@ -177,7 +204,7 @@ export default function App() {
   const filteredProducts = useMemo(() => {
     const term = productSearch.trim().toLowerCase();
     return products.filter((p) => {
-      const matchesType = productTypeFilter === "Todos" || p.type === productTypeFilter;
+      const matchesType = productTypeFilter === "Todos" || p.categoryId === productTypeFilter;
       const matchesTerm =
         !term ||
         p.name.toLowerCase().includes(term) ||
@@ -186,8 +213,8 @@ export default function App() {
     });
   }, [products, productSearch, productTypeFilter]);
 
-  const categoryNames = useMemo(
-    () => [...new Set(categories.map((c) => c.name))].sort((a, b) => a.localeCompare(b)),
+  const categoryOptions = useMemo(
+    () => categories.slice().sort((a, b) => a.name.localeCompare(b.name)),
     [categories]
   );
 
@@ -302,9 +329,9 @@ export default function App() {
   async function handleDeleteCategory(category: Category) {
     const hasChildren = categories.some((c) => c.parentId === category.id);
     if (hasChildren) {
-      await deleteCategoryWithChildren(category.id, categories);
+      await deleteCategoryWithChildren(category.id, categories, providers);
     } else {
-      await deleteCategory(category.id);
+      await deleteCategory(category.id, providers);
     }
   }
 
@@ -476,9 +503,9 @@ export default function App() {
               onChange={(e) => setProductTypeFilter(e.target.value as ProductTypeFilter)}
             >
               <option value="Todos">Todos los tipos</option>
-              {categoryNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
+              {categoryOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
             </select>
@@ -501,6 +528,7 @@ export default function App() {
                 <ProductCard
                   key={p.id}
                   product={p}
+                  categories={categories}
                   shipments={shipments}
                   onEdit={() => setEditingProduct(p)}
                   onDelete={() => setPendingDeleteProduct(p)}
@@ -574,6 +602,7 @@ export default function App() {
             <OrderForm
               initial={editingOrder === "new" ? null : editingOrder}
               products={products}
+              categories={categories}
               shipments={shipments}
               onCancel={() => setEditingOrder(null)}
               onSave={handleSaveOrder}
@@ -609,6 +638,7 @@ export default function App() {
                 <ProviderCard
                   key={p.id}
                   provider={p}
+                  categories={categories}
                   onEdit={() => setEditingProvider(p)}
                   onDelete={() => setPendingDeleteProvider(p)}
                 />
