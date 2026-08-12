@@ -1,6 +1,7 @@
 node_modules/
 dist/
 release/
+release-android/
 .DS_Store
 src/firebaseConfig.ts
 .claude/settings.local.json

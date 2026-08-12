@@ -80,6 +80,30 @@ La app usa `electron-updater` + GitHub Releases para auto-actualizarse. Cada vez
 
 La primera instalación en cada computadora nueva sí es manual: comparte el instalador (`JerseyID Envíos Setup X.X.X.exe`) una vez, y de ahí en adelante se actualiza sola.
 
+## 7. Versión Android (.apk)
+
+La misma app corre en Android empacada con [Capacitor](https://capacitorjs.com/): reutiliza todo el código de `src/`, solo cambia el "empaque" (en vez de una ventana de Electron, un WebView nativo). No se publica en Play Store — se comparte el `.apk` directo a quien lo vaya a usar (igual que el instalador de Windows).
+
+**Requiere una sola vez por computadora donde se compile:**
+- JDK (ya lo tienes si compilaste antes).
+- Android SDK — command-line tools, `platform-tools`, `platforms;android-36` y `build-tools;36.0.0`/`35.0.0`, instalados en `%LOCALAPPDATA%\Android\Sdk`.
+- Un keystore de firma en `%LOCALAPPDATA%\JerseyIDEnvios\android-signing\` (`release.keystore` + `keystore.properties`) — **ya generado, no lo vuelvas a crear a menos que se pierda**. Si algún día hay que regenerarlo (ej. computadora nueva), corre:
+  ```powershell
+  keytool -genkeypair -v -keystore release.keystore -alias jerseyid -keyalg RSA -keysize 2048 -validity 10000
+  ```
+  y guarda el `.keystore` + las contraseñas que uses en un lugar seguro (gestor de contraseñas). **Nunca lo subas al repo** (es público) — si pierdes este archivo, las futuras versiones ya no van a poder "actualizar" una instalación existente en un teléfono; habría que desinstalar la vieja primero.
+
+**Para compilar un `.apk` nuevo** (después de cualquier cambio en `src/`):
+```powershell
+npm run build
+npx cap sync android
+cd android
+./gradlew.bat assembleRelease
+```
+El `.apk` firmado queda en `android/app/build/outputs/apk/release/app-release.apk`. Antes de compilar una versión nueva, sube `versionCode` (entero, +1 cada vez) y `versionName` en `android/app/build.gradle` para que quede identificada.
+
+**Para instalarlo:** comparte ese `.apk` (WhatsApp, Drive, USB...). Al abrirlo, Android va a pedir permiso una vez para "instalar de fuentes desconocidas" para esa app — es normal, no hay Play Store de por medio. No hay auto-update en Android: cada actualización futura se reinstala a mano con el `.apk` nuevo (pisa la anterior sin perder datos, siempre que se firme con el mismo keystore).
+
 ## Cómo funciona
 
 - **Envíos**: cada tarjeta tiene imagen, proveedor, número de seguimiento, estado y un link de rastreo que tú agregas manualmente al registrar o editar el envío (botón "Editar" → campo "Link de rastreo"). Cada envío tiene un **origen** (Fábrica = restock de inventario, Sucursal = ya es tu stock saliendo hacia un cliente) y, si es de Fábrica, a dónde **llega** (Sucursal o Domicilio) — esto controla la automatización de Stock y Pedidos de abajo.
