@@ -1,6 +1,7 @@
 import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Order, OrderLine, Product, Shipment } from "../types";
+import type { Order, OrderLine, Product, Provider, Shipment } from "../types";
+import { resolveUnitCost } from "./costing";
 
 /**
  * Se llama cuando un envío pasa a estado "Entregado". Solo tiene efecto si el
@@ -10,7 +11,8 @@ import type { Order, OrderLine, Product, Shipment } from "../types";
 export async function applyShipmentDelivery(
   shipment: Shipment,
   products: Product[],
-  orders: Order[]
+  orders: Order[],
+  providers: Provider[]
 ) {
   if (shipment.origin !== "Fábrica") return;
 
@@ -54,9 +56,16 @@ export async function applyShipmentDelivery(
     const lines: OrderLine[] = order.lines.map((line) => {
       if (line.status !== "Bajo pedido" || line.shipmentId !== shipment.id) return line;
       changed = true;
+      const delivered = shipment.destinationType !== "Sucursal";
       return {
         ...line,
-        status: shipment.destinationType === "Sucursal" ? "Listo para entregar" : "Entregado"
+        status: delivered ? "Entregado" : "Listo para entregar",
+        // "shipment" (no product.providerId) es la fuente de verdad del costo aquí:
+        // ya trae el proveedor vigente sin depender de que el producto ya se haya
+        // actualizado en este mismo batch.
+        ...(delivered
+          ? { unitCost: resolveUnitCost(line, products, providers, [shipment]) }
+          : {})
       };
     });
     if (changed) {

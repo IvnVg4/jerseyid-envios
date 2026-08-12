@@ -11,7 +11,8 @@ import {
   writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Order, OrderInput, OrderLine, Product, ProductVariant } from "../types";
+import type { Order, OrderInput, OrderLine, Product, ProductVariant, Provider, Shipment } from "../types";
+import { resolveUnitCost } from "./costing";
 
 const ORDERS = "orders";
 const PRODUCTS = "products";
@@ -216,9 +217,21 @@ export async function deleteOrder(order: Order, products: Product[]) {
   await batch.commit();
 }
 
-export async function markOrderLineDelivered(order: Order, lineIndex: number) {
+export async function markOrderLineDelivered(
+  order: Order,
+  lineIndex: number,
+  products: Product[],
+  providers: Provider[],
+  shipments: Shipment[]
+) {
   const lines = order.lines.map((line, i) =>
-    i === lineIndex ? { ...line, status: "Entregado" as const } : line
+    i === lineIndex
+      ? {
+          ...line,
+          status: "Entregado" as const,
+          unitCost: resolveUnitCost(line, products, providers, shipments)
+        }
+      : line
   );
   await updateDoc(doc(db, ORDERS, order.id), {
     lines,
@@ -226,9 +239,20 @@ export async function markOrderLineDelivered(order: Order, lineIndex: number) {
   });
 }
 
-export async function markAllOrderLinesDelivered(order: Order) {
+export async function markAllOrderLinesDelivered(
+  order: Order,
+  products: Product[],
+  providers: Provider[],
+  shipments: Shipment[]
+) {
   const lines = order.lines.map((line) =>
-    line.status === "Entregado" ? line : { ...line, status: "Entregado" as const }
+    line.status === "Entregado"
+      ? line
+      : {
+          ...line,
+          status: "Entregado" as const,
+          unitCost: resolveUnitCost(line, products, providers, shipments)
+        }
   );
   await updateDoc(doc(db, ORDERS, order.id), {
     lines,

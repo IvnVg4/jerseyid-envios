@@ -154,6 +154,17 @@ export interface OrderLine {
   shipmentId: string | null;
   /** Precio unitario capturado al agregar la línea (no cambia si luego cambia el precio del producto). */
   unitPrice: number;
+  /**
+   * Costo unitario del proveedor, congelado en el momento en que la línea se marca
+   * "Entregado" (ver `resolveUnitCost` en services/costing.ts) — igual que
+   * `unitPrice` ya se fija al agregar la línea, así el reporte de Ventas no cambia
+   * si después se edita el precio del proveedor.
+   * `null` = en ese momento no había proveedor/precio asignado (costo desconocido,
+   * nunca se trata como 0 para no inflar la ganancia mostrada).
+   * `undefined` = línea entregada antes de que existiera este campo; Ventas cae de
+   * vuelta a calcularlo al vuelo con el precio vigente, como respaldo.
+   */
+  unitCost?: number | null;
   /** Nombre a estampar en la jersey (solo para productos personalizados). Puede venir vacío si solo se pide número. */
   customName: string;
   /** Número a estampar en la jersey (solo para productos personalizados). Puede venir vacío si solo se pide nombre. */

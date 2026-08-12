@@ -1296,6 +1296,10 @@ label {
   margin: -0.6rem 0 0;
 }
 
+.sales-cost-warning {
+  color: var(--danger);
+}
+
 .sales-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);

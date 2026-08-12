@@ -227,7 +227,7 @@ export default function App() {
       const wasDelivered = editing.status === "Entregado";
       await updateShipment(editing.id, input);
       if (!wasDelivered && input.status === "Entregado") {
-        await applyShipmentDelivery({ ...editing, ...input }, products, orders);
+        await applyShipmentDelivery({ ...editing, ...input }, products, orders, providers);
       }
     } else {
       await createShipment(input);
@@ -272,11 +272,11 @@ export default function App() {
   }
 
   async function handleMarkLineDelivered(order: Order, lineIndex: number) {
-    await markOrderLineDelivered(order, lineIndex);
+    await markOrderLineDelivered(order, lineIndex, products, providers, shipments);
   }
 
   async function handleMarkAllDelivered(order: Order) {
-    await markAllOrderLinesDelivered(order);
+    await markAllOrderLinesDelivered(order, products, providers, shipments);
   }
 
   async function handleRevertLineDelivered(order: Order, lineIndex: number) {
@@ -635,7 +635,9 @@ export default function App() {
         </>
       )}
 
-      {view === "sales" && <SalesView orders={orders} products={products} providers={providers} />}
+      {view === "sales" && (
+        <SalesView orders={orders} products={products} providers={providers} shipments={shipments} />
+      )}
 
       {view === "categories" && (
         <>

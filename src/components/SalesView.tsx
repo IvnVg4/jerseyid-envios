@@ -1,9 +1,11 @@
-import type { Order, Product, Provider } from "../types";
+import type { Order, Product, Provider, Shipment } from "../types";
+import { resolveUnitCost } from "../services/costing";
 
 interface Props {
   orders: Order[];
   products: Product[];
   providers: Provider[];
+  shipments: Shipment[];
 }
 
 interface Row {
@@ -19,29 +21,23 @@ interface Row {
   profit: number;
 }
 
-function lineCost(product: Product | undefined, providers: Provider[]): { cost: number; known: boolean } {
-  if (!product || !product.providerId) return { cost: 0, known: false };
-  const provider = providers.find((p) => p.id === product.providerId);
-  if (!provider) return { cost: 0, known: false };
-  const entry = provider.prices.find(
-    (p) =>
-      p.categoryName === product.type &&
-      p.sleeve === (product.sleeve || "") &&
-      p.version === (product.version || "")
-  );
-  if (!entry) return { cost: 0, known: false };
-  return { cost: entry.cost, known: true };
-}
-
-export default function SalesView({ orders, products, providers }: Props) {
+export default function SalesView({ orders, products, providers, shipments }: Props) {
   const rows: Row[] = [];
   for (const order of orders) {
     order.lines.forEach((line, i) => {
       if (line.status !== "Entregado") return;
-      const product = products.find((p) => p.id === line.productId);
-      const { cost, known } = lineCost(product, providers);
+      // El costo se congela al momento de marcar la línea "Entregado" (ver
+      // services/costing.ts) para que editar precios de proveedor después no
+      // reescriba en silencio la ganancia de ventas ya cerradas. Las líneas
+      // entregadas antes de que existiera ese campo (unitCost === undefined) caen
+      // de vuelta al cálculo al vuelo con el precio vigente, como respaldo.
+      const unitCost =
+        line.unitCost !== undefined
+          ? line.unitCost
+          : resolveUnitCost(line, products, providers, shipments);
+      const known = unitCost !== null;
       const revenue = line.quantity * line.unitPrice;
-      const cogs = line.quantity * cost;
+      const cogs = line.quantity * (unitCost ?? 0);
       rows.push({
         key: `${order.id}-${i}`,
         date: order.updatedAt,
@@ -76,7 +72,7 @@ export default function SalesView({ orders, products, providers }: Props) {
           <span className="stat-value">${totalCost.toLocaleString("es-MX")}</span>
         </div>
         <div className="stat-card stat-card-accent">
-          <span className="stat-label">Ganancia</span>
+          <span className="stat-label">Ganancia{unknownCostPieces > 0 && " *"}</span>
           <span className="stat-value">${totalProfit.toLocaleString("es-MX")}</span>
         </div>
         <div className="stat-card">
@@ -88,8 +84,18 @@ export default function SalesView({ orders, products, providers }: Props) {
       <p className="field-hint sales-hint">
         Solo cuenta lo ya <strong>entregado</strong>: lo vendido, apartado o listo para entregar
         todavía no se refleja aquí.
-        {unknownCostPieces > 0 &&
-          ` ${unknownCostPieces} pieza(s) entregada(s) no tienen proveedor/costo asignado — su ganancia mostrada equivale al precio completo. Asígnales un proveedor en Stock y un precio en Proveedores para verlo real.`}
+        {unknownCostPieces > 0 && (
+          <>
+            {" "}
+            <strong className="sales-cost-warning">
+              * {unknownCostPieces} pieza(s) entregada(s) no tenían proveedor/costo asignado al
+              momento de entregarse — su costo se cuenta como $0 y la ganancia mostrada equivale
+              al precio completo.
+            </strong>{" "}
+            Asigna un proveedor en Stock y un precio en Proveedores antes de entregar para que
+            quede bien registrado.
+          </>
+        )}
       </p>
 
       {rows.length === 0 ? (
@@ -119,8 +125,22 @@ export default function SalesView({ orders, products, providers }: Props) {
                   <td>{r.size || "—"}</td>
                   <td>{r.quantity}</td>
                   <td>${r.revenue.toLocaleString("es-MX")}</td>
-                  <td>{r.costKnown ? `$${r.cost.toLocaleString("es-MX")}` : "—"}</td>
-                  <td>${r.profit.toLocaleString("es-MX")}</td>
+                  {r.costKnown ? (
+                    <>
+                      <td>${r.cost.toLocaleString("es-MX")}</td>
+                      <td>${r.profit.toLocaleString("es-MX")}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td
+                        className="sales-cost-warning"
+                        title="Sin proveedor/costo asignado al momento de entregarse"
+                      >
+                        ?
+                      </td>
+                      <td className="sales-cost-warning">${r.profit.toLocaleString("es-MX")} *</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
