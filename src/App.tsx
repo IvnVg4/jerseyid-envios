@@ -53,7 +53,7 @@ import {
   updateProvider
 } from "./services/providers";
 import { applyShipmentDelivery } from "./services/fulfillment";
-import { reconcileProductProviders } from "./services/sync";
+import { reconcileProductProviders, reconcileShipmentProviders } from "./services/sync";
 import Login from "./components/Login";
 import ShipmentCard from "./components/ShipmentCard";
 import ShipmentForm from "./components/ShipmentForm";
@@ -150,6 +150,11 @@ export default function App() {
     const unsub = subscribeToProviders(setProviders, (err) => setProviderLoadError(err.message));
     return unsub;
   }, [user]);
+
+  useEffect(() => {
+    if (!user || shipments.length === 0 || providers.length === 0) return;
+    reconcileShipmentProviders(shipments, providers).catch(() => {});
+  }, [user, shipments, providers]);
 
   useEffect(() => {
     if (!user || products.length === 0 || shipments.length === 0) return;
