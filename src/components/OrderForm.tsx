@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import {
   Category,
   EMPTY_SHIPPING_ADDRESS,
+  IncomingBatch,
   ORDER_FULFILLMENT_TYPES,
   Order,
   OrderFulfillmentType,
@@ -51,10 +52,19 @@ function lineMatchesVariant(line: OrderLine, product: Product, size: string): bo
   return !line.size && product.variants.length === 1;
 }
 
+/** Un lote "Pedido" (ya apartado para un cliente en concreto, asignado o no
+ * todavía) no se puede tomar para otro pedido cualquiera — solo cuenta aquí si
+ * este MISMO pedido ya lo tenía reclamado (se está reasignando/editando). Los
+ * lotes "Stock" siempre son de libre reparto. */
+function isBatchClaimable(batch: IncomingBatch, product: Product, size: string, initialLines: OrderLine[]): boolean {
+  if (batch.purpose === "Stock") return true;
+  return initialLines.some((l) => lineMatchesVariant(l, product, size) && l.sourceBatchId === batch.id);
+}
+
 /** Piezas que esa talla del producto todavía puede ofrecer para este pedido (stock +
- * lotes en camino/fábrica juntos): lo disponible ahora, más lo que este mismo pedido
- * ya tenía apartado originalmente (se puede reasignar), menos lo que el borrador
- * actual ya está pidiendo. */
+ * lotes en camino/fábrica juntos, sin contar lotes "Pedido" de otro cliente): lo
+ * disponible ahora, más lo que este mismo pedido ya tenía apartado originalmente
+ * (se puede reasignar), menos lo que el borrador actual ya está pidiendo. */
 function availableQuantity(
   product: Product,
   size: string,
@@ -69,7 +79,10 @@ function availableQuantity(
   const drafted = draftLines
     .filter((l) => lineMatchesVariant(l, product, size))
     .reduce((sum, l) => sum + l.quantity, 0);
-  const total = variant.quantity + variant.incoming.reduce((sum, b) => sum + b.quantity, 0);
+  const claimableIncoming = variant.incoming
+    .filter((b) => isBatchClaimable(b, product, size, initialLines))
+    .reduce((sum, b) => sum + b.quantity, 0);
+  const total = variant.quantity + claimableIncoming;
   return total + givenBack - drafted;
 }
 
@@ -80,9 +93,10 @@ interface Allocation {
 }
 
 /** Reparte la cantidad pedida entre el stock físico y los lotes en camino/fábrica
- * de esa talla, en ese orden — así "pido 8 y da que 2 son de stock y 6 de un lote
- * en camino" no requiere que quien captura sepa de dónde sale cada pieza. Cada
- * entrada del resultado se vuelve una `OrderLine` propia (mismo producto/talla). */
+ * de esa talla (sin tocar lotes "Pedido" de otro cliente), en ese orden — así
+ * "pido 8 y da que 2 son de stock y 6 de un lote en camino" no requiere que quien
+ * captura sepa de dónde sale cada pieza. Cada entrada del resultado se vuelve una
+ * `OrderLine` propia (mismo producto/talla). */
 function allocateSources(
   product: Product,
   size: string,
@@ -114,6 +128,7 @@ function allocateSources(
 
   for (const b of variant.incoming) {
     if (remaining <= 0) break;
+    if (!isBatchClaimable(b, product, size, initialLines)) continue;
     const batchAvail = batchAvailable(b) + givenBackFor(b.id) - draftedFor(b.id);
     if (batchAvail <= 0) continue;
     const take = Math.min(batchAvail, remaining);

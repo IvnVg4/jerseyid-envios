@@ -40,8 +40,12 @@ export interface NewBatchRequest {
 /** Agrega, sobre una copia de `products`, los lotes nuevos que todavía no
  * existen en Firestore (creando la variante de esa talla si hace falta) — así
  * `applyProductDeltas` los encuentra igual que si ya existieran y les aplica la
- * reserva de la línea que los originó en el mismo movimiento. */
-function injectNewBatches(products: Product[], newBatches: NewBatchRequest[]): Product[] {
+ * reserva de la línea que los originó en el mismo movimiento. Siempre
+ * `purpose: "Pedido"` y enlazados a `orderId`: nacen ya comprometidos con este
+ * pedido de cliente, nunca cuentan como stock general disponible (ver
+ * `summarizeVariant` en services/inventory.ts), y su envío se asigna desde
+ * Pedidos, no desde Inventario. */
+function injectNewBatches(products: Product[], newBatches: NewBatchRequest[], orderId: string): Product[] {
   if (newBatches.length === 0) return products;
   const byProduct = new Map<string, NewBatchRequest[]>();
   for (const nb of newBatches) {
@@ -59,7 +63,8 @@ function injectNewBatches(products: Product[], newBatches: NewBatchRequest[]): P
         reserved: 0,
         purchaseOrderId: null,
         shipmentId: null,
-        destination: "Tienda"
+        purpose: "Pedido",
+        linkedOrderId: orderId
       };
       const idx = variants.findIndex((v) => v.size === nb.size);
       if (idx === -1) {
@@ -251,12 +256,12 @@ export async function createOrder(
   newBatches: NewBatchRequest[] = []
 ) {
   const batch = writeBatch(db);
-  const workingProducts = injectNewBatches(products, newBatches);
+  const orderRef = doc(collection(db, ORDERS));
+  const workingProducts = injectNewBatches(products, newBatches, orderRef.id);
   const stockDelta = computeStockDelta([], input.lines);
   const batchReservedDelta = computeBatchReservedDelta([], input.lines);
   applyProductDeltas(batch, workingProducts, stockDelta, batchReservedDelta);
 
-  const orderRef = doc(collection(db, ORDERS));
   batch.set(orderRef, {
     ...input,
     createdAt: serverTimestamp(),
@@ -274,7 +279,7 @@ export async function updateOrder(
   newBatches: NewBatchRequest[] = []
 ) {
   const batch = writeBatch(db);
-  const workingProducts = injectNewBatches(products, newBatches);
+  const workingProducts = injectNewBatches(products, newBatches, id);
   const stockDelta = computeStockDelta(oldOrder.lines, input.lines);
   const batchReservedDelta = computeBatchReservedDelta(oldOrder.lines, input.lines);
   applyProductDeltas(batch, workingProducts, stockDelta, batchReservedDelta);
@@ -393,8 +398,19 @@ export async function removeOrderLine(order: Order, lineIndex: number, products:
  * usar en cualquier línea no entregada, venga de stock o de un lote de fábrica.
  * Si la línea seguía "En preparación", pasa a "Enviado"; si ya estaba más
  * avanzada (ej. corrigiendo el envío equivocado), solo actualiza el enlace.
+ *
+ * Si la línea reservó un lote ("Pedido", ver services/purchaseOrders.ts), el
+ * mismo envío se enlaza también en ese lote — si no, cuando el envío llegue,
+ * `applyShipmentDelivery` (fulfillment.ts) no lo reconocería como resuelto por
+ * buscar coincidencia por lote, no solo por línea.
  */
-export async function assignOrderLineShipment(order: Order, lineIndex: number, shipmentId: string) {
+export async function assignOrderLineShipment(
+  order: Order,
+  lineIndex: number,
+  shipmentId: string,
+  products: Product[]
+) {
+  const targetLine = order.lines[lineIndex];
   const lines = order.lines.map((line, i) =>
     i === lineIndex
       ? {
@@ -404,8 +420,22 @@ export async function assignOrderLineShipment(order: Order, lineIndex: number, s
         }
       : line
   );
-  await updateDoc(doc(db, ORDERS, order.id), {
-    lines,
-    updatedAt: serverTimestamp()
-  });
+
+  const batch = writeBatch(db);
+  batch.update(doc(db, ORDERS, order.id), { lines, updatedAt: serverTimestamp() });
+
+  if (targetLine.sourceBatchId) {
+    const product = products.find((p) =>
+      p.variants.some((v) => v.incoming.some((b) => b.id === targetLine.sourceBatchId))
+    );
+    if (product) {
+      const variants = product.variants.map((v) => ({
+        ...v,
+        incoming: v.incoming.map((b) => (b.id === targetLine.sourceBatchId ? { ...b, shipmentId } : b))
+      }));
+      batch.update(doc(db, PRODUCTS, product.id), { variants, updatedAt: serverTimestamp() });
+    }
+  }
+
+  await batch.commit();
 }

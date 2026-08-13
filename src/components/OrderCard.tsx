@@ -38,7 +38,7 @@ export default function OrderCard({
     <div className="order-card">
       <div className="shipment-body">
         <div className="order-card-header">
-          <div>
+          <div className="order-card-title">
             <h3>{order.customerName}</h3>
             <div className="shipment-tracking">{order.customerPhone}</div>
           </div>

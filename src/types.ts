@@ -79,8 +79,13 @@ export type ProductSize = (typeof PRODUCT_SIZES)[number];
 
 export const MAX_IMAGES_PER_PRODUCT = 2;
 
-export const INCOMING_BATCH_DESTINATIONS = ["Tienda", "Domicilio"] as const;
-export type IncomingBatchDestination = (typeof INCOMING_BATCH_DESTINATIONS)[number];
+// "Stock" = restock general de la tienda, disponible para cualquier cliente.
+// "Pedido" = ya está apartado para un pedido de cliente en concreto (aunque
+// todavía no se le haya asignado cuál — ver `linkedOrderId`); nunca cuenta como
+// inventario disponible en general, y su envío se asigna desde Pedidos, no
+// desde Inventario.
+export const BATCH_PURPOSES = ["Stock", "Pedido"] as const;
+export type BatchPurpose = (typeof BATCH_PURPOSES)[number];
 
 /**
  * Un lote de piezas que todavía no es stock físico: se pidió al proveedor (ver
@@ -96,10 +101,15 @@ export interface IncomingBatch {
   reserved: number;
   /** De qué "pedido a proveedor" salió este lote (ver `PurchaseOrder`). null = lote suelto, capturado a mano en el producto. */
   purchaseOrderId: string | null;
-  /** null = "En fábrica" (pedido, sin tracking aún); con valor = "En camino" (ya tiene envío enlazado). */
+  /** null = "En fábrica" (pedido, sin tracking aún); con valor = "En camino" (ya tiene envío enlazado).
+   * Se asigna desde Inventario si `purpose` es "Stock" (al hacer/editar el pedido a proveedor), o
+   * desde Pedidos si `purpose` es "Pedido" — nunca desde el producto directamente. */
   shipmentId: string | null;
-  /** A dónde llega este lote: a la tienda (restock) o directo al domicilio de un cliente. */
-  destination: IncomingBatchDestination;
+  /** Para quién es este lote: restock general ("Stock") o ya apartado para un cliente ("Pedido"). */
+  purpose: BatchPurpose;
+  /** Solo aplica si `purpose` es "Pedido": a qué pedido de cliente está destinado. Puede quedar
+   * null si todavía no se decide a cuál (se puede vincular después). */
+  linkedOrderId: string | null;
 }
 
 /** Una talla (o la única variante, si la categoría no usa tallas) dentro de un mismo producto/diseño. */
@@ -268,13 +278,12 @@ export type ProviderInput = Omit<Provider, "id" | "createdAt" | "updatedAt">;
 
 // ---- Pedidos a proveedor ----
 
-// Tienda = restock hacia la sucursal (como un envío origen "Fábrica"/destino
-// "Sucursal"). Domicilio del cliente = va directo de fábrica al domicilio de un
-// cliente, sin pasar por la tienda (puede enlazarse a un pedido de cliente ya
-// existente con `linkedOrderId`).
-export const PURCHASE_ORDER_DESTINATIONS = ["Tienda", "Domicilio del cliente"] as const;
-export type PurchaseOrderDestination = (typeof PURCHASE_ORDER_DESTINATIONS)[number];
-
+/**
+ * Una línea de un pedido a proveedor: cada producto/talla que se pide decide por
+ * separado si es para engrosar el stock de la tienda o si ya va destinado a un
+ * pedido de cliente — un mismo pedido a proveedor puede mezclar ambos casos
+ * (ej. 10 piezas de restock + 2 que ya tienen dueño).
+ */
 export interface PurchaseOrderLine {
   productId: string;
   productName: string;
@@ -282,17 +291,17 @@ export interface PurchaseOrderLine {
   quantity: number;
   /** Id del `IncomingBatch` creado en el producto para esta línea. */
   batchId: string;
+  purpose: BatchPurpose;
+  /** Solo aplica si purpose es "Pedido". Puede quedar null (sin decidir todavía)
+   * y vincularse después desde la tarjeta del pedido a proveedor. */
+  linkedOrderId: string | null;
 }
 
 export interface PurchaseOrder {
   id: string;
   providerId: string;
-  destination: PurchaseOrderDestination;
   hasDeposit: boolean;
   depositAmount: number;
-  /** A qué pedido de cliente surte este pedido a proveedor (opcional, solo aplica
-   * si destination es "Domicilio del cliente"). */
-  linkedOrderId: string | null;
   lines: PurchaseOrderLine[];
   notes: string;
   createdAt: number;

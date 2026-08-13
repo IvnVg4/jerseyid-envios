@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
+  BATCH_PURPOSES,
+  BatchPurpose,
   Category,
   Order,
-  PURCHASE_ORDER_DESTINATIONS,
   Product,
   ProductInput,
   ProductSize,
@@ -26,13 +27,15 @@ interface Props {
 
 const EMPTY: PurchaseOrderInput = {
   providerId: "",
-  destination: "Tienda",
   hasDeposit: false,
   depositAmount: 0,
-  linkedOrderId: null,
   lines: [],
   notes: ""
 };
+
+function purposeLabel(purpose: BatchPurpose): string {
+  return purpose === "Stock" ? "Para stock" : "Para pedido";
+}
 
 export default function PurchaseOrderForm({
   products,
@@ -47,6 +50,8 @@ export default function PurchaseOrderForm({
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedSize, setSelectedSize] = useState<ProductSize | "">("");
   const [lineQuantity, setLineQuantity] = useState(1);
+  const [linePurpose, setLinePurpose] = useState<BatchPurpose>("Stock");
+  const [lineLinkedOrderId, setLineLinkedOrderId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creatingProduct, setCreatingProduct] = useState(false);
@@ -64,6 +69,7 @@ export default function PurchaseOrderForm({
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const needsSizePick = !!selectedProduct && selectedProduct.variants.some((v) => v.size !== "");
+  const openCustomerOrders = orders.filter((o) => o.lines.some((l) => l.status !== "Entregado"));
 
   function selectProduct(id: string) {
     const product = products.find((p) => p.id === id);
@@ -93,12 +99,16 @@ export default function PurchaseOrderForm({
       productName: product.name,
       size,
       quantity: lineQuantity,
-      batchId: "" // se asigna al guardar (services/purchaseOrders.ts)
+      batchId: "", // se asigna al guardar (services/purchaseOrders.ts)
+      purpose: linePurpose,
+      linkedOrderId: linePurpose === "Pedido" ? lineLinkedOrderId : null
     };
     setForm((f) => ({ ...f, lines: [...f.lines, line] }));
     setSelectedProductId("");
     setSelectedSize("");
     setLineQuantity(1);
+    setLinePurpose("Stock");
+    setLineLinkedOrderId(null);
   }
 
   function removeLine(index: number) {
@@ -136,8 +146,6 @@ export default function PurchaseOrderForm({
     }
   }
 
-  const openCustomerOrders = orders.filter((o) => o.lines.some((l) => l.status !== "Entregado"));
-
   return (
     <div className="modal-overlay" onMouseDown={onCancel}>
       <form
@@ -164,47 +172,6 @@ export default function PurchaseOrderForm({
             ))}
           </select>
         </label>
-
-        <label>
-          Destino *
-          <select
-            value={form.destination}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                destination: e.target.value as typeof f.destination,
-                linkedOrderId: e.target.value === "Tienda" ? null : f.linkedOrderId
-              }))
-            }
-          >
-            {PURCHASE_ORDER_DESTINATIONS.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-          <span className="field-hint">
-            Tienda = llega a la sucursal como restock. Domicilio del cliente = va directo de
-            fábrica al domicilio, sin pasar por tienda.
-          </span>
-        </label>
-
-        {form.destination === "Domicilio del cliente" && (
-          <label>
-            ¿A qué pedido de cliente surte? (opcional)
-            <select
-              value={form.linkedOrderId ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, linkedOrderId: e.target.value || null }))}
-            >
-              <option value="">Sin vincular</option>
-              {openCustomerOrders.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.customerName} · {o.customerPhone}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
 
         <label className="checkbox-label">
           <input
@@ -274,10 +241,37 @@ export default function PurchaseOrderForm({
               value={lineQuantity}
               onChange={(e) => setLineQuantity(Number(e.target.value))}
             />
+            <select
+              value={linePurpose}
+              onChange={(e) => setLinePurpose(e.target.value as BatchPurpose)}
+              title="Para quién es esta pieza"
+            >
+              {BATCH_PURPOSES.map((p) => (
+                <option key={p} value={p}>
+                  {purposeLabel(p)}
+                </option>
+              ))}
+            </select>
             <button type="button" className="secondary" onClick={addLine}>
               Agregar
             </button>
           </div>
+          {linePurpose === "Pedido" && (
+            <label>
+              ¿A qué pedido de cliente surte? (opcional, se puede vincular después)
+              <select
+                value={lineLinkedOrderId ?? ""}
+                onChange={(e) => setLineLinkedOrderId(e.target.value || null)}
+              >
+                <option value="">Sin vincular todavía</option>
+                {openCustomerOrders.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.customerName} · {o.customerPhone}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="tag-input-row">
             <button type="button" className="link-button" onClick={() => setCreatingProduct(true)}>
               + Producto nuevo (se guarda también en Inventario)
@@ -290,26 +284,33 @@ export default function PurchaseOrderForm({
 
         {form.lines.length > 0 && (
           <div className="order-lines">
-            {form.lines.map((line, i) => (
-              <div key={i} className="order-line-row">
-                <div className="order-line-info">
-                  <span className="order-line-name">
-                    {line.quantity}× {line.productName}
-                    {line.size ? ` (Talla ${line.size})` : ""}
-                  </span>
+            {form.lines.map((line, i) => {
+              const linkedOrder = line.linkedOrderId ? orders.find((o) => o.id === line.linkedOrderId) : undefined;
+              return (
+                <div key={i} className="order-line-row">
+                  <div className="order-line-info">
+                    <span className="order-line-name">
+                      {line.quantity}× {line.productName}
+                      {line.size ? ` (Talla ${line.size})` : ""}
+                    </span>
+                    <div className="order-line-meta">
+                      <span className="attr-chip">{purposeLabel(line.purpose)}</span>
+                      {linkedOrder && <span className="attr-chip">→ {linkedOrder.customerName}</span>}
+                    </div>
+                  </div>
+                  <div className="order-line-actions">
+                    <button
+                      type="button"
+                      className="thumb-remove"
+                      onClick={() => removeLine(i)}
+                      title="Quitar línea"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
-                <div className="order-line-actions">
-                  <button
-                    type="button"
-                    className="thumb-remove"
-                    onClick={() => removeLine(i)}
-                    title="Quitar línea"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

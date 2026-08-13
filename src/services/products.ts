@@ -38,7 +38,10 @@ interface LegacyVariant {
 
 function normalizeVariant(v: LegacyVariant): ProductVariant {
   const size = v.size ?? "";
-  // Ya en el shape nuevo (incoming es un arreglo): solo rellenar defaults.
+  // Ya en el shape nuevo (incoming es un arreglo): solo rellenar defaults. Los
+  // lotes de antes de que existiera `purpose` no traen ese campo — se infiere
+  // "Pedido" si ya estaban reservados (así se creaban los lotes automáticos por
+  // faltante) o "Stock" si no (restock suelto/de proveedor).
   if (Array.isArray(v.incoming)) {
     return {
       size,
@@ -49,7 +52,8 @@ function normalizeVariant(v: LegacyVariant): ProductVariant {
         reserved: b.reserved ?? 0,
         purchaseOrderId: b.purchaseOrderId ?? null,
         shipmentId: b.shipmentId ?? null,
-        destination: b.destination ?? "Tienda"
+        purpose: b.purpose ?? ((b.reserved ?? 0) > 0 ? "Pedido" : "Stock"),
+        linkedOrderId: b.linkedOrderId ?? null
       }))
     };
   }
@@ -65,7 +69,8 @@ function normalizeVariant(v: LegacyVariant): ProductVariant {
             reserved: legacyIncoming.reserved ?? 0,
             purchaseOrderId: null,
             shipmentId: legacyIncoming.shipmentId || null,
-            destination: "Tienda"
+            purpose: (legacyIncoming.reserved ?? 0) > 0 ? "Pedido" : "Stock",
+            linkedOrderId: null
           }
         ]
       : [];

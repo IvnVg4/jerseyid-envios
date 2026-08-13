@@ -1,9 +1,7 @@
 import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import {
   Category,
-  INCOMING_BATCH_DESTINATIONS,
   IncomingBatch,
-  IncomingBatchDestination,
   JERSEY_SLEEVES,
   JERSEY_VERSIONS,
   MAX_IMAGES_PER_PRODUCT,
@@ -42,6 +40,10 @@ const EMPTY_FORM: FormState = {
   providerId: ""
 };
 
+/** Un lote agregado a mano desde Inventario siempre es restock general
+ * ("Stock", sin envío) — las piezas ya apartadas para un cliente ("Pedido") se
+ * originan desde un Pedido a proveedor o desde el pedido del cliente mismo, no
+ * se capturan aquí, para no mezclar. */
 function emptyBatch(): IncomingBatch {
   return {
     id: crypto.randomUUID(),
@@ -49,7 +51,8 @@ function emptyBatch(): IncomingBatch {
     reserved: 0,
     purchaseOrderId: null,
     shipmentId: null,
-    destination: "Tienda"
+    purpose: "Stock",
+    linkedOrderId: null
   };
 }
 
@@ -123,9 +126,6 @@ export default function ProductForm({
   const selectedCategory = categories.find((c) => c.id === form.categoryId);
   const isJersey = selectedCategory?.isJerseyLike ?? false;
   const needsSize = selectedCategory?.usesSizes ?? false;
-  const openFactoryShipments = shipments.filter(
-    (s) => s.origin === "Fábrica" && s.status !== "Entregado"
-  );
 
   function handleCategoryChange(categoryId: string) {
     const category = categories.find((c) => c.id === categoryId);
@@ -311,6 +311,15 @@ export default function ProductForm({
     }
   }
 
+  /** El envío de un lote ya no se elige aquí (rule: "ya no mezclar") — se
+   * asigna desde el Pedido a proveedor si es "Stock", o desde el Pedido del
+   * cliente si es "Pedido"; aquí solo se ve el estado resultante. */
+  function batchStatusLabel(batch: IncomingBatch): string {
+    if (batch.purpose === "Pedido") return "Apartado para un pedido";
+    const shipment = shipments.find((s) => s.id === batch.shipmentId);
+    return batch.shipmentId ? `En camino${shipment ? ` · #${shipment.trackingNumber}` : ""}` : "En fábrica";
+  }
+
   function renderBatchRow(variantIndex: number, batch: IncomingBatch) {
     return (
       <div key={batch.id} className="incoming-batch-row">
@@ -322,33 +331,7 @@ export default function ProductForm({
           value={batch.quantity}
           onChange={(e) => updateBatch(variantIndex, batch.id, { quantity: Number(e.target.value) })}
         />
-        <select
-          value={batch.destination}
-          onChange={(e) =>
-            updateBatch(variantIndex, batch.id, {
-              destination: e.target.value as IncomingBatchDestination
-            })
-          }
-          title="A dónde llega este lote"
-        >
-          {INCOMING_BATCH_DESTINATIONS.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
-        <select
-          value={batch.shipmentId ?? ""}
-          onChange={(e) => updateBatch(variantIndex, batch.id, { shipmentId: e.target.value || null })}
-          title="Envío que trae este lote"
-        >
-          <option value="">Sin envío (en fábrica)</option>
-          {openFactoryShipments.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.provider} · #{s.trackingNumber}
-            </option>
-          ))}
-        </select>
+        <span className="field-hint">{batchStatusLabel(batch)}</span>
         {!!batch.reserved && (
           <span className="field-hint">{batch.reserved} ya apartadas</span>
         )}
@@ -632,15 +615,11 @@ export default function ProductForm({
                 );
               })}
             </div>
-            {openFactoryShipments.length === 0 && variants.some((v) => v.incoming.length > 0) && (
-              <span className="field-hint">
-                No hay envíos de fábrica pendientes todavía — los lotes sin envío quedan "En
-                fábrica" hasta que crees uno en la pestaña Envíos y lo enlaces aquí.
-              </span>
-            )}
             <span className="field-hint">
               Marca las tallas que tiene este diseño. Una talla puede tener piezas en stock y uno o
-              varios lotes en camino al mismo tiempo.
+              varios lotes en camino al mismo tiempo. El envío de un lote ya no se asigna aquí:
+              hazlo desde "Pedido a proveedor" (restock) o desde el pedido del cliente (piezas ya
+              apartadas).
             </span>
           </div>
         ) : (

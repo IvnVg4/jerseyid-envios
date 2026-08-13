@@ -925,11 +925,19 @@ label {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.6rem;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+}
+
+.order-card-title {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .order-card-header h3 {
   margin: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .order-card-badges {

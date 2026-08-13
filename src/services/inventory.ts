@@ -16,11 +16,18 @@ export interface VariantSummary {
   inTransit: number; // lotes con envío enlazado (shipmentId set)
 }
 
-/** Resumen del estado de una talla, para mostrar en tarjetas/badges sin repetir la cuenta. */
+/**
+ * Resumen del estado de una talla, para mostrar en tarjetas/badges sin repetir
+ * la cuenta. Los lotes "Pedido" (ya apartados para un cliente en concreto,
+ * asignado o no todavía) y cualquier lote con piezas reservadas no cuentan
+ * aquí: desde la tienda no hay nada realmente disponible en esas piezas,
+ * aunque técnicamente sigan sin llegar.
+ */
 export function summarizeVariant(variant: ProductVariant): VariantSummary {
   let inFactory = 0;
   let inTransit = 0;
   for (const batch of variant.incoming) {
+    if (batch.purpose === "Pedido" || batch.reserved > 0) continue;
     if (batch.shipmentId) inTransit += batch.quantity;
     else inFactory += batch.quantity;
   }

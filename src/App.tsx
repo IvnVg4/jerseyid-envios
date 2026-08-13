@@ -58,8 +58,10 @@ import {
   updateProvider
 } from "./services/providers";
 import {
+  assignPurchaseOrderLineShipment,
   createPurchaseOrder,
   deletePurchaseOrder,
+  linkPurchaseOrderLineToOrder,
   subscribeToPurchaseOrders
 } from "./services/purchaseOrders";
 import { applyShipmentDelivery } from "./services/fulfillment";
@@ -83,6 +85,8 @@ import ProviderForm from "./components/ProviderForm";
 import PurchaseOrderCard from "./components/PurchaseOrderCard";
 import PurchaseOrderForm from "./components/PurchaseOrderForm";
 import AssignShipmentDialog from "./components/AssignShipmentDialog";
+import AssignPurchaseOrderShipmentDialog from "./components/AssignPurchaseOrderShipmentDialog";
+import LinkOrderDialog from "./components/LinkOrderDialog";
 import SalesView from "./components/SalesView";
 import ConfirmDialog from "./components/ConfirmDialog";
 
@@ -100,10 +104,15 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Todos");
   const [editing, setEditing] = useState<Shipment | null | "new">(null);
   const [pendingDelete, setPendingDelete] = useState<Shipment | null>(null);
-  // Cuando se crea un envío nuevo desde "Asignar envío" en Pedidos, recordamos a
-  // qué línea enlazarlo apenas se guarde (ver handleSave más abajo).
+  // Cuando se crea un envío nuevo desde "Asignar envío" en Pedidos (o desde un
+  // pedido a proveedor), recordamos a qué línea enlazarlo apenas se guarde (ver
+  // handleSave más abajo). Solo una de las dos aplica a la vez.
   const [assignShipmentAfterCreate, setAssignShipmentAfterCreate] = useState<{
     order: Order;
+    lineIndex: number;
+  } | null>(null);
+  const [assignShipmentAfterCreateForPO, setAssignShipmentAfterCreateForPO] = useState<{
+    po: PurchaseOrder;
     lineIndex: number;
   } | null>(null);
 
@@ -140,6 +149,13 @@ export default function App() {
   const [purchaseOrderActionError, setPurchaseOrderActionError] = useState<string | null>(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<"new" | null>(null);
   const [pendingDeletePurchaseOrder, setPendingDeletePurchaseOrder] = useState<PurchaseOrder | null>(
+    null
+  );
+  const [assigningPOShipment, setAssigningPOShipment] = useState<{
+    po: PurchaseOrder;
+    lineIndex: number;
+  } | null>(null);
+  const [linkingPOOrder, setLinkingPOOrder] = useState<{ po: PurchaseOrder; lineIndex: number } | null>(
     null
   );
 
@@ -312,9 +328,19 @@ export default function App() {
         await assignOrderLineShipment(
           assignShipmentAfterCreate.order,
           assignShipmentAfterCreate.lineIndex,
-          newId
+          newId,
+          products
         );
         setAssignShipmentAfterCreate(null);
+      }
+      if (assignShipmentAfterCreateForPO) {
+        await assignPurchaseOrderLineShipment(
+          assignShipmentAfterCreateForPO.po,
+          assignShipmentAfterCreateForPO.lineIndex,
+          newId,
+          products
+        );
+        setAssignShipmentAfterCreateForPO(null);
       }
     }
   }
@@ -377,7 +403,7 @@ export default function App() {
 
   async function handleAssignShipmentToLine(shipmentId: string) {
     if (!assigningShipment) return;
-    await assignOrderLineShipment(assigningShipment.order, assigningShipment.lineIndex, shipmentId);
+    await assignOrderLineShipment(assigningShipment.order, assigningShipment.lineIndex, shipmentId, products);
     setAssigningShipment(null);
   }
 
@@ -421,7 +447,7 @@ export default function App() {
   }
 
   async function handleSavePurchaseOrder(input: PurchaseOrderInput) {
-    await createPurchaseOrder(input, products);
+    await createPurchaseOrder(input, products, orders);
     setEditingPurchaseOrder(null);
   }
 
@@ -436,6 +462,37 @@ export default function App() {
         err instanceof Error ? err.message : "No se pudo eliminar el pedido a proveedor."
       );
       setPendingDeletePurchaseOrder(null);
+    }
+  }
+
+  async function handleAssignPOShipment(shipmentId: string) {
+    if (!assigningPOShipment) return;
+    await assignPurchaseOrderLineShipment(
+      assigningPOShipment.po,
+      assigningPOShipment.lineIndex,
+      shipmentId,
+      products
+    );
+    setAssigningPOShipment(null);
+  }
+
+  function handleCreateNewShipmentForPOLine() {
+    if (!assigningPOShipment) return;
+    setAssignShipmentAfterCreateForPO(assigningPOShipment);
+    setAssigningPOShipment(null);
+    setEditing("new");
+  }
+
+  async function handleLinkPOToOrder(targetOrder: Order) {
+    if (!linkingPOOrder) return;
+    setPurchaseOrderActionError(null);
+    try {
+      await linkPurchaseOrderLineToOrder(linkingPOOrder.po, linkingPOOrder.lineIndex, targetOrder, products);
+      setLinkingPOOrder(null);
+    } catch (err) {
+      setPurchaseOrderActionError(
+        err instanceof Error ? err.message : "No se pudo vincular esta pieza al pedido."
+      );
     }
   }
 
@@ -759,7 +816,11 @@ export default function App() {
                     key={po.id}
                     purchaseOrder={po}
                     providers={providers}
+                    products={products}
+                    orders={orders}
                     onDelete={() => setPendingDeletePurchaseOrder(po)}
+                    onAssignShipment={(lineIndex) => setAssigningPOShipment({ po, lineIndex })}
+                    onLinkToOrder={(lineIndex) => setLinkingPOOrder({ po, lineIndex })}
                   />
                 ))}
               </div>
@@ -802,6 +863,27 @@ export default function App() {
               onCancel={() => setPendingDeletePurchaseOrder(null)}
             />
           )}
+
+          {assigningPOShipment && (
+            <AssignPurchaseOrderShipmentDialog
+              purchaseOrder={assigningPOShipment.po}
+              lineIndex={assigningPOShipment.lineIndex}
+              shipments={shipments}
+              onAssign={handleAssignPOShipment}
+              onCreateNew={handleCreateNewShipmentForPOLine}
+              onCancel={() => setAssigningPOShipment(null)}
+            />
+          )}
+
+          {linkingPOOrder && (
+            <LinkOrderDialog
+              purchaseOrder={linkingPOOrder.po}
+              lineIndex={linkingPOOrder.lineIndex}
+              orders={orders}
+              onLink={handleLinkPOToOrder}
+              onCancel={() => setLinkingPOOrder(null)}
+            />
+          )}
         </>
       )}
 
@@ -830,6 +912,7 @@ export default function App() {
           onCancel={() => {
             setEditing(null);
             setAssignShipmentAfterCreate(null);
+            setAssignShipmentAfterCreateForPO(null);
           }}
           onSave={handleSave}
         />

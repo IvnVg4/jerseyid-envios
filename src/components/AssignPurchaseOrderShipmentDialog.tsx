@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { Order, Shipment } from "../types";
+import type { PurchaseOrder, Shipment } from "../types";
 import ShipmentPicker from "./ShipmentPicker";
 
 interface Props {
-  order: Order;
+  purchaseOrder: PurchaseOrder;
   lineIndex: number;
   shipments: Shipment[];
   onAssign: (shipmentId: string) => Promise<void>;
@@ -11,9 +11,16 @@ interface Props {
   onCancel: () => void;
 }
 
-export default function AssignShipmentDialog({ order, lineIndex, shipments, onAssign, onCreateNew, onCancel }: Props) {
-  const line = order.lines[lineIndex];
-  const [shipmentId, setShipmentId] = useState(line.shipmentId ?? "");
+export default function AssignPurchaseOrderShipmentDialog({
+  purchaseOrder,
+  lineIndex,
+  shipments,
+  onAssign,
+  onCreateNew,
+  onCancel
+}: Props) {
+  const line = purchaseOrder.lines[lineIndex];
+  const [shipmentId, setShipmentId] = useState("");
   const [saving, setSaving] = useState(false);
   const eligible = shipments.filter((s) => s.status !== "Entregado");
 
@@ -33,7 +40,7 @@ export default function AssignShipmentDialog({ order, lineIndex, shipments, onAs
         <h2>Asignar envío</h2>
         <p className="field-hint">
           {line.quantity}× {line.productName}
-          {line.size ? ` (Talla ${line.size})` : ""} — {order.customerName}
+          {line.size ? ` (Talla ${line.size})` : ""} — restock de tienda
         </p>
 
         <label>
@@ -42,7 +49,7 @@ export default function AssignShipmentDialog({ order, lineIndex, shipments, onAs
         </label>
 
         <button type="button" className="link-button" onClick={onCreateNew}>
-          + Crear un envío nuevo para esta pieza
+          + Crear un envío nuevo para este lote
         </button>
 
         <div className="modal-actions">
