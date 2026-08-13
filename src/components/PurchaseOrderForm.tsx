@@ -4,6 +4,7 @@ import {
   BatchPurpose,
   Category,
   Order,
+  PRODUCT_SIZES,
   Product,
   ProductInput,
   ProductSize,
@@ -223,13 +224,14 @@ export default function PurchaseOrderForm({
               <select
                 value={selectedSize}
                 onChange={(e) => setSelectedSize(e.target.value as ProductSize | "")}
+                title="El proveedor surte cualquier talla, esté o no ya dada de alta"
               >
                 <option value="" disabled>
                   Talla...
                 </option>
-                {selectedProduct!.variants.map((v) => (
-                  <option key={v.size} value={v.size}>
-                    {v.size}
+                {PRODUCT_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
                   </option>
                 ))}
               </select>
@@ -256,6 +258,10 @@ export default function PurchaseOrderForm({
               Agregar
             </button>
           </div>
+          <span className="field-hint">
+            Puedes pedir cualquier talla y cantidad, aunque el producto no la tenga dada de alta
+            todavía — es tu proveedor, él te surte.
+          </span>
           {linePurpose === "Pedido" && (
             <label>
               ¿A qué pedido de cliente surte? (opcional, se puede vincular después)

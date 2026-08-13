@@ -62,6 +62,7 @@ import {
   createPurchaseOrder,
   deletePurchaseOrder,
   linkPurchaseOrderLineToOrder,
+  removePurchaseOrderLine,
   subscribeToPurchaseOrders
 } from "./services/purchaseOrders";
 import { applyShipmentDelivery } from "./services/fulfillment";
@@ -465,6 +466,17 @@ export default function App() {
     }
   }
 
+  async function handleRemovePOLine(po: PurchaseOrder, lineIndex: number) {
+    setPurchaseOrderActionError(null);
+    try {
+      await removePurchaseOrderLine(po, lineIndex, products);
+    } catch (err) {
+      setPurchaseOrderActionError(
+        err instanceof Error ? err.message : "No se pudo quitar ese producto del pedido a proveedor."
+      );
+    }
+  }
+
   async function handleAssignPOShipment(shipmentId: string) {
     if (!assigningPOShipment) return;
     await assignPurchaseOrderLineShipment(
@@ -821,6 +833,7 @@ export default function App() {
                     onDelete={() => setPendingDeletePurchaseOrder(po)}
                     onAssignShipment={(lineIndex) => setAssigningPOShipment({ po, lineIndex })}
                     onLinkToOrder={(lineIndex) => setLinkingPOOrder({ po, lineIndex })}
+                    onRemoveLine={(lineIndex) => handleRemovePOLine(po, lineIndex)}
                   />
                 ))}
               </div>

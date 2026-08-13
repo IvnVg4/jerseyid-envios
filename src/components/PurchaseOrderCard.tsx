@@ -8,6 +8,7 @@ interface Props {
   onDelete: () => void;
   onAssignShipment: (lineIndex: number) => void;
   onLinkToOrder: (lineIndex: number) => void;
+  onRemoveLine: (lineIndex: number) => void;
 }
 
 function purposeLabel(purpose: PurchaseOrder["lines"][number]["purpose"]): string {
@@ -21,7 +22,8 @@ export default function PurchaseOrderCard({
   orders,
   onDelete,
   onAssignShipment,
-  onLinkToOrder
+  onLinkToOrder,
+  onRemoveLine
 }: Props) {
   const providerName = providers.find((p) => p.id === purchaseOrder.providerId)?.name ?? "Proveedor eliminado";
   const totalPieces = purchaseOrder.lines.reduce((sum, l) => sum + l.quantity, 0);
@@ -43,6 +45,7 @@ export default function PurchaseOrderCard({
             const batch = product?.variants.flatMap((v) => v.incoming).find((b) => b.id === line.batchId);
             const linkedOrder = line.linkedOrderId ? orders.find((o) => o.id === line.linkedOrderId) : undefined;
             const arrived = !batch; // ya no está en `incoming`: el envío llegó y se movió a stock
+            const removable = !arrived && !batch?.reserved;
             return (
               <div key={i} className="order-line-row">
                 <div className="order-line-info">
@@ -79,6 +82,16 @@ export default function PurchaseOrderCard({
                       title="Vincular esta pieza a un pedido de cliente ya existente"
                     >
                       Vincular a pedido
+                    </button>
+                  )}
+                  {removable && (
+                    <button
+                      type="button"
+                      className="thumb-remove"
+                      onClick={() => onRemoveLine(i)}
+                      title="Quitar este producto del pedido a proveedor"
+                    >
+                      ×
                     </button>
                   )}
                 </div>

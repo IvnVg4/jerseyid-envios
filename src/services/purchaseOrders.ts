@@ -9,7 +9,15 @@ import {
   writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { IncomingBatch, Order, OrderLine, Product, PurchaseOrder, PurchaseOrderInput } from "../types";
+import type {
+  IncomingBatch,
+  Order,
+  OrderLine,
+  Product,
+  PurchaseOrder,
+  PurchaseOrderInput,
+  PurchaseOrderLine
+} from "../types";
 
 const PURCHASE_ORDERS = "purchaseOrders";
 const PRODUCTS = "products";
@@ -141,6 +149,33 @@ export async function createPurchaseOrder(input: PurchaseOrderInput, products: P
   await batch.commit();
 }
 
+/** Quita el lote de una línea de la lista `incoming` del producto (registra el
+ * cambio en `productUpdates`, sin escribir todavía) — comparte la misma regla
+ * de seguridad para borrar una línea suelta o el pedido a proveedor completo:
+ * si el lote ya llegó a stock no hay nada que revertir, y si ya tiene piezas
+ * apartadas por un cliente hay que soltarlas primero desde Pedidos. */
+function releaseLineBatch(
+  line: PurchaseOrderLine,
+  products: Product[],
+  productUpdates: Map<string, Product["variants"]>
+) {
+  const product = products.find((p) => p.id === line.productId);
+  if (!product) return;
+  const variants = productUpdates.get(product.id) ?? product.variants;
+  const variant = variants.find((v) => v.size === line.size);
+  const incomingBatch = variant?.incoming.find((b) => b.id === line.batchId);
+  if (!incomingBatch) return; // ya se movió a stock (el envío llegó): nada que revertir aquí
+  if (incomingBatch.reserved > 0) {
+    throw new Error(
+      `"${line.productName}"${line.size ? ` talla ${line.size}` : ""} ya tiene piezas apartadas por un pedido de cliente — quítalas antes desde Pedidos.`
+    );
+  }
+  const nextVariants = variants.map((v) =>
+    v !== variant ? v : { ...v, incoming: v.incoming.filter((b) => b.id !== line.batchId) }
+  );
+  productUpdates.set(product.id, nextVariants);
+}
+
 /** Solo se puede borrar si ninguno de sus lotes ya se movió a stock (llegó el
  * envío) o tiene piezas reservadas por un pedido de cliente — si no, el pedido a
  * proveedor ya no refleja la realidad del inventario y borrarlo lo desincroniza. */
@@ -149,21 +184,7 @@ export async function deletePurchaseOrder(purchaseOrder: PurchaseOrder, products
   const productUpdates = new Map<string, Product["variants"]>();
 
   for (const line of purchaseOrder.lines) {
-    const product = products.find((p) => p.id === line.productId);
-    if (!product) continue;
-    const variants = productUpdates.get(product.id) ?? product.variants;
-    const variant = variants.find((v) => v.size === line.size);
-    const incomingBatch = variant?.incoming.find((b) => b.id === line.batchId);
-    if (!incomingBatch) continue; // ya se movió a stock (el envío llegó): nada que revertir aquí
-    if (incomingBatch.reserved > 0) {
-      throw new Error(
-        `"${line.productName}"${line.size ? ` talla ${line.size}` : ""} ya tiene piezas apartadas por un pedido de cliente — quítalas antes de borrar este pedido a proveedor.`
-      );
-    }
-    const nextVariants = variants.map((v) =>
-      v !== variant ? v : { ...v, incoming: v.incoming.filter((b) => b.id !== line.batchId) }
-    );
-    productUpdates.set(product.id, nextVariants);
+    releaseLineBatch(line, products, productUpdates);
   }
 
   for (const [productId, variants] of productUpdates) {
@@ -171,6 +192,25 @@ export async function deletePurchaseOrder(purchaseOrder: PurchaseOrder, products
   }
 
   batch.delete(doc(db, PURCHASE_ORDERS, purchaseOrder.id));
+  await batch.commit();
+}
+
+/** Quita un solo producto de un pedido a proveedor ya guardado — misma regla
+ * de seguridad que borrar el pedido completo (ver `releaseLineBatch`), pero
+ * sin tocar el resto de sus líneas. */
+export async function removePurchaseOrderLine(purchaseOrder: PurchaseOrder, lineIndex: number, products: Product[]) {
+  const line = purchaseOrder.lines[lineIndex];
+  const batch = writeBatch(db);
+  const productUpdates = new Map<string, Product["variants"]>();
+
+  releaseLineBatch(line, products, productUpdates);
+
+  for (const [productId, variants] of productUpdates) {
+    batch.update(doc(db, PRODUCTS, productId), { variants, updatedAt: serverTimestamp() });
+  }
+
+  const lines = purchaseOrder.lines.filter((_, i) => i !== lineIndex);
+  batch.update(doc(db, PURCHASE_ORDERS, purchaseOrder.id), { lines, updatedAt: serverTimestamp() });
   await batch.commit();
 }
 
