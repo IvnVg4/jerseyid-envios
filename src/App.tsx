@@ -10,6 +10,8 @@ import {
   ProductInput,
   Provider,
   ProviderInput,
+  PurchaseOrder,
+  PurchaseOrderInput,
   SHIPMENT_STATUSES,
   Shipment,
   ShipmentInput,
@@ -28,6 +30,7 @@ import {
   updateProduct
 } from "./services/products";
 import {
+  assignOrderLineShipment,
   createOrder,
   deleteOrder,
   markAllOrderLinesDelivered,
@@ -52,8 +55,14 @@ import {
   subscribeToProviders,
   updateProvider
 } from "./services/providers";
+import {
+  createPurchaseOrder,
+  deletePurchaseOrder,
+  subscribeToPurchaseOrders
+} from "./services/purchaseOrders";
 import { applyShipmentDelivery } from "./services/fulfillment";
 import {
+  reconcileOrderLineShipments,
   reconcileProductCategories,
   reconcileProductProviders,
   reconcileProviderCategoryPrices,
@@ -69,12 +78,15 @@ import OrderForm from "./components/OrderForm";
 import CategoryManager from "./components/CategoryManager";
 import ProviderCard from "./components/ProviderCard";
 import ProviderForm from "./components/ProviderForm";
+import PurchaseOrderCard from "./components/PurchaseOrderCard";
+import PurchaseOrderForm from "./components/PurchaseOrderForm";
+import AssignShipmentDialog from "./components/AssignShipmentDialog";
 import SalesView from "./components/SalesView";
 import ConfirmDialog from "./components/ConfirmDialog";
 
 type StatusFilter = "Todos" | ShipmentStatus;
 type ProductTypeFilter = "Todos" | string;
-type View = "shipments" | "stock" | "orders" | "providers" | "sales" | "categories";
+type View = "shipments" | "inventory" | "orders" | "providers" | "sales" | "categories";
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -86,6 +98,12 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Todos");
   const [editing, setEditing] = useState<Shipment | null | "new">(null);
   const [pendingDelete, setPendingDelete] = useState<Shipment | null>(null);
+  // Cuando se crea un envío nuevo desde "Asignar envío" en Pedidos, recordamos a
+  // qué línea enlazarlo apenas se guarde (ver handleSave más abajo).
+  const [assignShipmentAfterCreate, setAssignShipmentAfterCreate] = useState<{
+    order: Order;
+    lineIndex: number;
+  } | null>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
@@ -99,6 +117,9 @@ export default function App() {
   const [orderSearch, setOrderSearch] = useState("");
   const [editingOrder, setEditingOrder] = useState<Order | null | "new">(null);
   const [pendingDeleteOrder, setPendingDeleteOrder] = useState<Order | null>(null);
+  const [assigningShipment, setAssigningShipment] = useState<{ order: Order; lineIndex: number } | null>(
+    null
+  );
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryLoadError, setCategoryLoadError] = useState<string | null>(null);
@@ -110,6 +131,14 @@ export default function App() {
   const [providerLoadError, setProviderLoadError] = useState<string | null>(null);
   const [editingProvider, setEditingProvider] = useState<Provider | null | "new">(null);
   const [pendingDeleteProvider, setPendingDeleteProvider] = useState<Provider | null>(null);
+
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [purchaseOrderLoadError, setPurchaseOrderLoadError] = useState<string | null>(null);
+  const [purchaseOrderActionError, setPurchaseOrderActionError] = useState<string | null>(null);
+  const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<"new" | null>(null);
+  const [pendingDeletePurchaseOrder, setPendingDeletePurchaseOrder] = useState<PurchaseOrder | null>(
+    null
+  );
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -159,6 +188,14 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToPurchaseOrders(setPurchaseOrders, (err) =>
+      setPurchaseOrderLoadError(err.message)
+    );
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
     if (!user || shipments.length === 0 || providers.length === 0) return;
     reconcileShipmentProviders(shipments, providers).catch(() => {});
   }, [user, shipments, providers]);
@@ -167,6 +204,13 @@ export default function App() {
     if (!user || products.length === 0 || shipments.length === 0) return;
     reconcileProductProviders(products, shipments).catch(() => {});
   }, [user, products, shipments]);
+
+  // Propaga a "Enviado" cualquier línea de pedido cuyo lote de fábrica ya se
+  // enlazó a un envío desde Inventario (ver services/sync.ts).
+  useEffect(() => {
+    if (!user || orders.length === 0 || products.length === 0) return;
+    reconcileOrderLineShipments(orders, products).catch(() => {});
+  }, [user, orders, products]);
 
   // Migración: productos y precios de proveedor guardados antes de que las
   // categorías tuvieran id propio traen el tipo/categoría como nombre en texto
@@ -256,10 +300,19 @@ export default function App() {
       if (!wasDelivered && input.status === "Entregado") {
         await applyShipmentDelivery({ ...editing, ...input }, products, orders, providers);
       }
+      setEditing(null);
     } else {
-      await createShipment(input);
+      const newId = await createShipment(input);
+      setEditing(null);
+      if (assignShipmentAfterCreate) {
+        await assignOrderLineShipment(
+          assignShipmentAfterCreate.order,
+          assignShipmentAfterCreate.lineIndex,
+          newId
+        );
+        setAssignShipmentAfterCreate(null);
+      }
     }
-    setEditing(null);
   }
 
   async function handleDeleteConfirmed() {
@@ -318,6 +371,19 @@ export default function App() {
     await removeOrderLine(order, lineIndex, products);
   }
 
+  async function handleAssignShipmentToLine(shipmentId: string) {
+    if (!assigningShipment) return;
+    await assignOrderLineShipment(assigningShipment.order, assigningShipment.lineIndex, shipmentId);
+    setAssigningShipment(null);
+  }
+
+  function handleCreateNewShipmentForLine() {
+    if (!assigningShipment) return;
+    setAssignShipmentAfterCreate(assigningShipment);
+    setAssigningShipment(null);
+    setEditing("new");
+  }
+
   async function handleCreateCategory(input: CategoryInput) {
     await createCategory(input);
   }
@@ -350,12 +416,31 @@ export default function App() {
     setPendingDeleteProvider(null);
   }
 
+  async function handleSavePurchaseOrder(input: PurchaseOrderInput) {
+    await createPurchaseOrder(input, products);
+    setEditingPurchaseOrder(null);
+  }
+
+  async function handleDeletePurchaseOrderConfirmed() {
+    if (!pendingDeletePurchaseOrder) return;
+    setPurchaseOrderActionError(null);
+    try {
+      await deletePurchaseOrder(pendingDeletePurchaseOrder, products);
+      setPendingDeletePurchaseOrder(null);
+    } catch (err) {
+      setPurchaseOrderActionError(
+        err instanceof Error ? err.message : "No se pudo eliminar el pedido a proveedor."
+      );
+      setPendingDeletePurchaseOrder(null);
+    }
+  }
+
   const countLabel =
     view === "shipments"
       ? filtered.length === shipments.length
         ? `${shipments.length} envío${shipments.length === 1 ? "" : "s"}`
         : `${filtered.length} de ${shipments.length} envíos`
-      : view === "stock"
+      : view === "inventory"
       ? filteredProducts.length === products.length
         ? `${products.length} producto${products.length === 1 ? "" : "s"}`
         : `${filteredProducts.length} de ${products.length} productos`
@@ -394,10 +479,10 @@ export default function App() {
           Envíos
         </button>
         <button
-          className={view === "stock" ? "tab-active" : "tab"}
-          onClick={() => setView("stock")}
+          className={view === "inventory" ? "tab-active" : "tab"}
+          onClick={() => setView("inventory")}
         >
-          Stock
+          Inventario
         </button>
         <button
           className={view === "orders" ? "tab-active" : "tab"}
@@ -469,27 +554,10 @@ export default function App() {
               ))}
             </div>
           )}
-
-          {editing && (
-            <ShipmentForm
-              initial={editing === "new" ? null : editing}
-              providers={providers}
-              onCancel={() => setEditing(null)}
-              onSave={handleSave}
-            />
-          )}
-
-          {pendingDelete && (
-            <ConfirmDialog
-              message={`¿Eliminar el envío de "${pendingDelete.provider}" (#${pendingDelete.trackingNumber})?`}
-              onConfirm={handleDeleteConfirmed}
-              onCancel={() => setPendingDelete(null)}
-            />
-          )}
         </>
       )}
 
-      {view === "stock" && (
+      {view === "inventory" && (
         <>
           <div className="toolbar">
             <input
@@ -593,6 +661,7 @@ export default function App() {
                   onRevertLineDelivered={(lineIndex) => handleRevertLineDelivered(o, lineIndex)}
                   onRevertAllDelivered={() => handleRevertAllDelivered(o)}
                   onRemoveLine={(lineIndex) => handleRemoveOrderLine(o, lineIndex)}
+                  onAssignShipment={(lineIndex) => setAssigningShipment({ order: o, lineIndex })}
                 />
               ))}
             </div>
@@ -604,8 +673,10 @@ export default function App() {
               products={products}
               categories={categories}
               shipments={shipments}
+              providers={providers}
               onCancel={() => setEditingOrder(null)}
               onSave={handleSaveOrder}
+              onCreateProduct={createProduct}
             />
           )}
 
@@ -616,6 +687,17 @@ export default function App() {
               onCancel={() => setPendingDeleteOrder(null)}
             />
           )}
+
+          {assigningShipment && (
+            <AssignShipmentDialog
+              order={assigningShipment.order}
+              lineIndex={assigningShipment.lineIndex}
+              shipments={shipments}
+              onAssign={handleAssignShipmentToLine}
+              onCreateNew={handleCreateNewShipmentForLine}
+              onCancel={() => setAssigningShipment(null)}
+            />
+          )}
         </>
       )}
 
@@ -623,6 +705,7 @@ export default function App() {
         <>
           <div className="toolbar">
             <div className="spacer" />
+            <button onClick={() => setEditingPurchaseOrder("new")}>+ Nuevo pedido</button>
             <button onClick={() => setEditingProvider("new")}>+ Nuevo proveedor</button>
           </div>
 
@@ -646,6 +729,29 @@ export default function App() {
             </div>
           )}
 
+          {purchaseOrderLoadError && (
+            <div className="auth-error page-error">{purchaseOrderLoadError}</div>
+          )}
+          {purchaseOrderActionError && (
+            <div className="auth-error page-error">{purchaseOrderActionError}</div>
+          )}
+
+          {purchaseOrders.length > 0 && (
+            <>
+              <h2 className="section-title">Pedidos a proveedor</h2>
+              <div className="shipment-grid">
+                {purchaseOrders.map((po) => (
+                  <PurchaseOrderCard
+                    key={po.id}
+                    purchaseOrder={po}
+                    providers={providers}
+                    onDelete={() => setPendingDeletePurchaseOrder(po)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
           {editingProvider && (
             <ProviderForm
               initial={editingProvider === "new" ? null : editingProvider}
@@ -660,6 +766,26 @@ export default function App() {
               message={`¿Eliminar el proveedor "${pendingDeleteProvider.name}"?`}
               onConfirm={handleDeleteProviderConfirmed}
               onCancel={() => setPendingDeleteProvider(null)}
+            />
+          )}
+
+          {editingPurchaseOrder && (
+            <PurchaseOrderForm
+              products={products}
+              categories={categories}
+              providers={providers}
+              orders={orders}
+              onCancel={() => setEditingPurchaseOrder(null)}
+              onSave={handleSavePurchaseOrder}
+              onCreateProduct={createProduct}
+            />
+          )}
+
+          {pendingDeletePurchaseOrder && (
+            <ConfirmDialog
+              message={`¿Eliminar este pedido a proveedor?`}
+              onConfirm={handleDeletePurchaseOrderConfirmed}
+              onCancel={() => setPendingDeletePurchaseOrder(null)}
             />
           )}
         </>
@@ -681,6 +807,26 @@ export default function App() {
             onDelete={handleDeleteCategory}
           />
         </>
+      )}
+
+      {editing && (
+        <ShipmentForm
+          initial={editing === "new" ? null : editing}
+          providers={providers}
+          onCancel={() => {
+            setEditing(null);
+            setAssignShipmentAfterCreate(null);
+          }}
+          onSave={handleSave}
+        />
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          message={`¿Eliminar el envío de "${pendingDelete.provider}" (#${pendingDelete.trackingNumber})?`}
+          onConfirm={handleDeleteConfirmed}
+          onCancel={() => setPendingDelete(null)}
+        />
       )}
     </div>
   );

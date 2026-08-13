@@ -1,6 +1,6 @@
 import { collection, doc, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Category, Product, Provider, Shipment } from "../types";
+import type { Category, Order, OrderLine, Product, Provider, Shipment } from "../types";
 
 /**
  * Corrige en segundo plano el `providerId` de cualquier envío que todavía no lo
@@ -45,10 +45,11 @@ export async function reconcileProductProviders(products: Product[], shipments: 
   for (const product of products) {
     let resolved: string | undefined;
     for (const v of product.variants) {
-      const shipmentId = v.incoming?.shipmentId;
-      if (!shipmentId) continue;
-      const shipment = shipments.find((s) => s.id === shipmentId);
-      if (shipment?.providerId) resolved = shipment.providerId;
+      for (const incomingBatch of v.incoming) {
+        if (!incomingBatch.shipmentId) continue;
+        const shipment = shipments.find((s) => s.id === incomingBatch.shipmentId);
+        if (shipment?.providerId) resolved = shipment.providerId;
+      }
     }
     if (resolved && resolved !== product.providerId) {
       batch.update(doc(db, "products", product.id), {
@@ -126,6 +127,39 @@ export async function reconcileProviderCategoryPrices(categories: Category[]) {
         prices: nextPrices,
         updatedAt: serverTimestamp()
       });
+      hasWrites = true;
+    }
+  }
+
+  if (hasWrites) await batch.commit();
+}
+
+/**
+ * Cuando una línea de pedido reserva un lote que todavía está "En fábrica"
+ * (`sourceBatchId` fijado, sin `shipmentId` propio) y ese lote luego se enlaza a
+ * un envío desde Inventario, esta función copia ese `shipmentId` a la línea y la
+ * pasa de "En preparación" a "Enviado" — sin que haya que volver a abrir el
+ * pedido a mano. Mismo patrón que `reconcileProductProviders`: corre en segundo
+ * plano cada vez que cambian pedidos o productos.
+ */
+export async function reconcileOrderLineShipments(orders: Order[], products: Product[]) {
+  const batch = writeBatch(db);
+  let hasWrites = false;
+
+  for (const order of orders) {
+    let changed = false;
+    const lines: OrderLine[] = order.lines.map((line) => {
+      if (!line.sourceBatchId || line.shipmentId || line.status !== "En preparación") return line;
+      const product = products.find((p) => p.id === line.productId);
+      const incomingBatch = product?.variants
+        .flatMap((v) => v.incoming)
+        .find((b) => b.id === line.sourceBatchId);
+      if (!incomingBatch?.shipmentId) return line;
+      changed = true;
+      return { ...line, shipmentId: incomingBatch.shipmentId, status: "Enviado" as const };
+    });
+    if (changed) {
+      batch.update(doc(db, "orders", order.id), { lines, updatedAt: serverTimestamp() });
       hasWrites = true;
     }
   }

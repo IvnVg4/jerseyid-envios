@@ -12,6 +12,7 @@ interface Props {
   onRevertLineDelivered: (lineIndex: number) => void;
   onRevertAllDelivered: () => void;
   onRemoveLine: (lineIndex: number) => void;
+  onAssignShipment: (lineIndex: number) => void;
 }
 
 export default function OrderCard({
@@ -24,7 +25,8 @@ export default function OrderCard({
   onMarkAllDelivered,
   onRevertLineDelivered,
   onRevertAllDelivered,
-  onRemoveLine
+  onRemoveLine,
+  onAssignShipment
 }: Props) {
   const orderTotal = order.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
   const deliveredCount = order.lines.filter((l) => l.status === "Entregado").length;
@@ -89,7 +91,17 @@ export default function OrderCard({
                   ${(line.quantity * line.unitPrice).toLocaleString("es-MX")}
                 </div>
                 <div className="order-line-actions">
-                  {line.status === "Bajo pedido" && (
+                  {line.status !== "Entregado" && !line.shipmentId && (
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => onAssignShipment(i)}
+                      title="Enlazar esta pieza a un envío (tienda→cliente o el que ya viene de fábrica)"
+                    >
+                      Asignar envío
+                    </button>
+                  )}
+                  {line.sourceBatchId && line.status === "En preparación" && (
                     <button
                       type="button"
                       className="icon-button"

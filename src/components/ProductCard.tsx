@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Category, Product, Shipment } from "../types";
+import { summarizeVariant } from "../services/inventory";
 import ImageLightbox from "./ImageLightbox";
 
 interface Props {
@@ -10,12 +11,6 @@ interface Props {
   onDelete: () => void;
 }
 
-const VARIANT_STATUS_CLASS: Record<Product["variants"][number]["stockStatus"], string> = {
-  Agotado: "stock-empty",
-  "En camino": "stock-pending",
-  "En stock": "stock-ok"
-};
-
 export default function ProductCard({ product, categories, shipments, onEdit, onDelete }: Props) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const categoryName = categories.find((c) => c.id === product.categoryId)?.name ?? "Sin categoría";
@@ -23,12 +18,12 @@ export default function ProductCard({ product, categories, shipments, onEdit, on
     product.sleeve || product.version || product.personalized || product.patches.length > 0
   );
 
-  const totalInStock = product.variants
-    .filter((v) => v.stockStatus === "En stock")
-    .reduce((sum, v) => sum + v.quantity, 0);
-  const totalIncoming = product.variants
-    .filter((v) => v.stockStatus === "En camino")
-    .reduce((sum, v) => sum + (v.incoming?.quantity ?? 0), 0);
+  const summaries = product.variants.map((v) => ({ variant: v, summary: summarizeVariant(v) }));
+  const totalInStock = summaries.reduce((sum, s) => sum + s.summary.inStock, 0);
+  const totalIncoming = summaries.reduce(
+    (sum, s) => sum + s.summary.inFactory + s.summary.inTransit,
+    0
+  );
 
   const showBreakdown = product.variants.length > 1;
 
@@ -71,19 +66,24 @@ export default function ProductCard({ product, categories, shipments, onEdit, on
 
         {showBreakdown && (
           <div className="variant-breakdown">
-            {product.variants.map((v, i) => {
-              const incomingShipment = v.incoming
-                ? shipments.find((s) => s.id === v.incoming?.shipmentId)
-                : undefined;
+            {summaries.map(({ variant: v, summary }, i) => {
+              const empty = summary.inStock === 0 && summary.inFactory === 0 && summary.inTransit === 0;
+              const statusClass = summary.inStock > 0 ? "stock-ok" : empty ? "stock-empty" : "stock-pending";
+              const parts: string[] = [];
+              if (summary.inStock > 0) parts.push(`${summary.inStock} en stock`);
+              if (summary.inFactory > 0) parts.push(`${summary.inFactory} en fábrica`);
+              if (summary.inTransit > 0) {
+                const trackingNumbers = v.incoming
+                  .filter((b) => b.shipmentId)
+                  .map((b) => shipments.find((s) => s.id === b.shipmentId)?.trackingNumber)
+                  .filter(Boolean);
+                parts.push(
+                  `${summary.inTransit} en camino${trackingNumbers.length ? ` · #${trackingNumbers.join(", #")}` : ""}`
+                );
+              }
               return (
-                <span key={i} className={`variant-chip ${VARIANT_STATUS_CLASS[v.stockStatus]}`}>
-                  {v.size || "Único"}:{" "}
-                  {v.stockStatus === "En stock" && `${v.quantity}`}
-                  {v.stockStatus === "Agotado" && "Agotado"}
-                  {v.stockStatus === "En camino" &&
-                    `en camino ×${v.incoming?.quantity ?? 0}${
-                      incomingShipment ? ` · #${incomingShipment.trackingNumber}` : ""
-                    }`}
+                <span key={i} className={`variant-chip ${statusClass}`}>
+                  {v.size || "Único"}: {empty ? "Agotado" : parts.join(" + ")}
                 </span>
               );
             })}

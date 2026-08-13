@@ -79,22 +79,36 @@ export type ProductSize = (typeof PRODUCT_SIZES)[number];
 
 export const MAX_IMAGES_PER_PRODUCT = 2;
 
-export const PRODUCT_STOCK_STATUSES = ["Agotado", "En camino", "En stock"] as const;
-export type ProductStockStatus = (typeof PRODUCT_STOCK_STATUSES)[number];
+export const INCOMING_BATCH_DESTINATIONS = ["Tienda", "Domicilio"] as const;
+export type IncomingBatchDestination = (typeof INCOMING_BATCH_DESTINATIONS)[number];
 
-export interface ProductIncoming {
-  shipmentId: string;
+/**
+ * Un lote de piezas que todavía no es stock físico: se pidió al proveedor (ver
+ * `PurchaseOrder`) y puede estar "En fábrica" (sin tracking todavía, `shipmentId`
+ * null) o "En camino" (ya se le enlazó un envío). Una misma talla puede tener
+ * varios lotes a la vez (ej. uno en fábrica y otro ya en camino), y puede tener
+ * lotes Y stock (`ProductVariant.quantity`) simultáneamente — no son excluyentes.
+ */
+export interface IncomingBatch {
+  id: string;
   quantity: number;
-  /** Piezas de este lote ya apartadas por pedidos "Bajo pedido". */
+  /** Piezas de este lote ya apartadas por líneas de pedido. */
   reserved: number;
+  /** De qué "pedido a proveedor" salió este lote (ver `PurchaseOrder`). null = lote suelto, capturado a mano en el producto. */
+  purchaseOrderId: string | null;
+  /** null = "En fábrica" (pedido, sin tracking aún); con valor = "En camino" (ya tiene envío enlazado). */
+  shipmentId: string | null;
+  /** A dónde llega este lote: a la tienda (restock) o directo al domicilio de un cliente. */
+  destination: IncomingBatchDestination;
 }
 
 /** Una talla (o la única variante, si la categoría no usa tallas) dentro de un mismo producto/diseño. */
 export interface ProductVariant {
   size: ProductSize | "";
-  stockStatus: ProductStockStatus;
+  /** Piezas físicamente en stock — independiente de `incoming`, pueden coexistir. */
   quantity: number;
-  incoming: ProductIncoming | null;
+  /** Lotes que todavía no son stock (0..n, ver `IncomingBatch`). */
+  incoming: IncomingBatch[];
 }
 
 /**
@@ -140,8 +154,8 @@ export type ProductInput = Omit<Product, "id" | "createdAt" | "updatedAt">;
 // ---- Pedidos ----
 
 export const ORDER_LINE_STATUSES = [
-  "Vendida",
-  "Bajo pedido",
+  "En preparación",
+  "Enviado",
   "Listo para entregar",
   "Entregado"
 ] as const;
@@ -154,6 +168,12 @@ export interface OrderLine {
   size: ProductSize | "";
   quantity: number;
   status: OrderLineStatus;
+  /** Qué lote de `ProductVariant.incoming` reservó esta pieza (ver services/orders.ts).
+   * null = la pieza salió directo del stock físico (`ProductVariant.quantity`). */
+  sourceBatchId: string | null;
+  /** Envío que lleva esta pieza a su destino final (tienda o domicilio del cliente).
+   * Se puede asignar a cualquier línea, venga de stock o de un lote de fábrica — no
+   * solo a las que llegaron "bajo pedido" como antes. */
   shipmentId: string | null;
   /** Precio unitario capturado al agregar la línea (no cambia si luego cambia el precio del producto). */
   unitPrice: number;
@@ -245,3 +265,38 @@ export interface Provider {
 }
 
 export type ProviderInput = Omit<Provider, "id" | "createdAt" | "updatedAt">;
+
+// ---- Pedidos a proveedor ----
+
+// Tienda = restock hacia la sucursal (como un envío origen "Fábrica"/destino
+// "Sucursal"). Domicilio del cliente = va directo de fábrica al domicilio de un
+// cliente, sin pasar por la tienda (puede enlazarse a un pedido de cliente ya
+// existente con `linkedOrderId`).
+export const PURCHASE_ORDER_DESTINATIONS = ["Tienda", "Domicilio del cliente"] as const;
+export type PurchaseOrderDestination = (typeof PURCHASE_ORDER_DESTINATIONS)[number];
+
+export interface PurchaseOrderLine {
+  productId: string;
+  productName: string;
+  size: ProductSize | "";
+  quantity: number;
+  /** Id del `IncomingBatch` creado en el producto para esta línea. */
+  batchId: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  providerId: string;
+  destination: PurchaseOrderDestination;
+  hasDeposit: boolean;
+  depositAmount: number;
+  /** A qué pedido de cliente surte este pedido a proveedor (opcional, solo aplica
+   * si destination es "Domicilio del cliente"). */
+  linkedOrderId: string | null;
+  lines: PurchaseOrderLine[];
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type PurchaseOrderInput = Omit<PurchaseOrder, "id" | "createdAt" | "updatedAt">;

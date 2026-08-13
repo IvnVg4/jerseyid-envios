@@ -628,6 +628,36 @@ label {
   min-width: 120px;
 }
 
+.variant-fields-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.incoming-batch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.5rem;
+}
+
+.incoming-batch-row select {
+  width: auto;
+  flex: 1;
+  min-width: 110px;
+}
+
+.section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1.2rem 0 0.6rem;
+}
+
 .variant-breakdown {
   display: flex;
   flex-wrap: wrap;

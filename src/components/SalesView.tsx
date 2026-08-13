@@ -24,6 +24,12 @@ interface Row {
 export default function SalesView({ orders, products, providers, shipments }: Props) {
   const rows: Row[] = [];
   for (const order of orders) {
+    // Un pedido con piezas mixtas (algunas entregadas, otras no) no cuenta en
+    // Ventas todavía: hasta que TODAS sus líneas estén "Entregado" se refleja
+    // aquí, aunque cada pieza ya se pueda marcar entregada por separado.
+    const orderFullyDelivered =
+      order.lines.length > 0 && order.lines.every((l) => l.status === "Entregado");
+    if (!orderFullyDelivered) continue;
     order.lines.forEach((line, i) => {
       if (line.status !== "Entregado") return;
       // El costo se congela al momento de marcar la línea "Entregado" (ver
@@ -82,8 +88,8 @@ export default function SalesView({ orders, products, providers, shipments }: Pr
       </div>
 
       <p className="field-hint sales-hint">
-        Solo cuenta lo ya <strong>entregado</strong>: lo vendido, apartado o listo para entregar
-        todavía no se refleja aquí.
+        Solo cuenta pedidos <strong>completos</strong>: si un pedido tiene varias piezas, aunque
+        marques algunas como entregadas no aparece aquí hasta que las entregues todas.
         {unknownCostPieces > 0 && (
           <>
             {" "}

@@ -20,30 +20,69 @@ function toMillis(value: Timestamp | undefined): number {
 }
 
 /**
- * Productos guardados antes de que las tallas se unieran en `variants` traían
- * `size`/`quantity`/`stockStatus`/`incoming` sueltos a nivel de producto. Los
- * adaptamos al leerlos para no requerir una migración de datos aparte; en cuanto
- * se vuelvan a guardar (editar el producto, o cualquier ajuste de stock) quedan
- * en el formato nuevo.
+ * Shape viejo de una talla: `stockStatus` mutuamente excluyente con un único
+ * `incoming` (en vez de `quantity` + `incoming: IncomingBatch[]` independientes).
+ * Se adapta al leerla, sin migración de datos aparte.
  */
+interface LegacyIncoming {
+  shipmentId: string;
+  quantity: number;
+  reserved: number;
+}
+interface LegacyVariant {
+  size?: ProductVariant["size"];
+  stockStatus?: "Agotado" | "En camino" | "En stock";
+  quantity?: number;
+  incoming?: LegacyIncoming | ProductVariant["incoming"][number][] | null;
+}
+
+function normalizeVariant(v: LegacyVariant): ProductVariant {
+  const size = v.size ?? "";
+  // Ya en el shape nuevo (incoming es un arreglo): solo rellenar defaults.
+  if (Array.isArray(v.incoming)) {
+    return {
+      size,
+      quantity: v.quantity ?? 0,
+      incoming: v.incoming.map((b) => ({
+        id: b.id ?? crypto.randomUUID(),
+        quantity: b.quantity ?? 0,
+        reserved: b.reserved ?? 0,
+        purchaseOrderId: b.purchaseOrderId ?? null,
+        shipmentId: b.shipmentId ?? null,
+        destination: b.destination ?? "Tienda"
+      }))
+    };
+  }
+  // Shape viejo: stockStatus + incoming único (o null).
+  const legacyIncoming = v.incoming as LegacyIncoming | null | undefined;
+  const quantity = v.stockStatus === "En camino" ? 0 : v.quantity ?? 0;
+  const incoming: ProductVariant["incoming"] =
+    v.stockStatus === "En camino" && legacyIncoming
+      ? [
+          {
+            id: crypto.randomUUID(),
+            quantity: legacyIncoming.quantity ?? 0,
+            reserved: legacyIncoming.reserved ?? 0,
+            purchaseOrderId: null,
+            shipmentId: legacyIncoming.shipmentId || null,
+            destination: "Tienda"
+          }
+        ]
+      : [];
+  return { size, quantity, incoming };
+}
+
 function normalizeVariants(data: Record<string, unknown>): ProductVariant[] {
   if (Array.isArray(data.variants) && data.variants.length > 0) {
-    return data.variants.map((v: Partial<ProductVariant>) => ({
-      size: v.size ?? "",
-      stockStatus: v.stockStatus ?? "Agotado",
-      quantity: v.quantity ?? 0,
-      incoming: v.incoming ?? null
-    }));
+    return data.variants.map((v: LegacyVariant) => normalizeVariant(v));
   }
   return [
-    {
-      size: (data.size as ProductVariant["size"]) ?? "",
-      stockStatus:
-        (data.stockStatus as ProductVariant["stockStatus"]) ??
-        ((data.quantity as number) > 0 ? "En stock" : "Agotado"),
-      quantity: (data.quantity as number) ?? 0,
-      incoming: (data.incoming as ProductVariant["incoming"]) ?? null
-    }
+    normalizeVariant({
+      size: data.size as ProductVariant["size"],
+      stockStatus: data.stockStatus as LegacyVariant["stockStatus"],
+      quantity: data.quantity as number,
+      incoming: data.incoming as LegacyVariant["incoming"]
+    })
   ];
 }
 
@@ -83,12 +122,13 @@ export function subscribeToProducts(
   );
 }
 
-export async function createProduct(input: ProductInput) {
-  await addDoc(collection(db, COLLECTION), {
+export async function createProduct(input: ProductInput): Promise<string> {
+  const ref = await addDoc(collection(db, COLLECTION), {
     ...input,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
+  return ref.id;
 }
 
 export async function updateProduct(id: string, input: ProductInput) {

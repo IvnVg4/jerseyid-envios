@@ -1,8 +1,8 @@
 import type { OrderLineStatus } from "../types";
 
 const STATUS_CLASS: Record<OrderLineStatus, string> = {
-  "Vendida": "status-sent",
-  "Bajo pedido": "status-pending",
+  "En preparación": "status-pending",
+  "Enviado": "status-sent",
   "Listo para entregar": "status-transit",
   "Entregado": "status-delivered"
 };

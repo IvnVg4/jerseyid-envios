@@ -1,16 +1,17 @@
 import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import {
   Category,
+  INCOMING_BATCH_DESTINATIONS,
+  IncomingBatch,
+  IncomingBatchDestination,
   JERSEY_SLEEVES,
   JERSEY_VERSIONS,
   MAX_IMAGES_PER_PRODUCT,
   PersonalizedUnit,
   PRODUCT_SIZES,
-  PRODUCT_STOCK_STATUSES,
   Product,
   ProductInput,
   ProductSize,
-  ProductStockStatus,
   ProductVariant,
   Provider,
   Shipment
@@ -41,8 +42,22 @@ const EMPTY_FORM: FormState = {
   providerId: ""
 };
 
+function emptyBatch(): IncomingBatch {
+  return {
+    id: crypto.randomUUID(),
+    quantity: 1,
+    reserved: 0,
+    purchaseOrderId: null,
+    shipmentId: null,
+    destination: "Tienda"
+  };
+}
+
+/** Al activar una talla nueva sin decir nada más, se asume que se pidió al
+ * proveedor pero todavía no hay tracking — un lote "En fábrica" por default,
+ * en vez de dejarla simplemente vacía. */
 function emptyVariant(size: ProductSize | ""): ProductVariant {
-  return { size, stockStatus: "En stock", quantity: 1, incoming: null };
+  return { size, quantity: 0, incoming: [emptyBatch()] };
 }
 
 export default function ProductForm({
@@ -82,16 +97,17 @@ export default function ProductForm({
   }, [initial]);
 
   // Reafirma el proveedor cada vez que se abre el formulario o cambian los
-  // envíos: si el envío enlazado como "En camino" cambió de proveedor después
+  // envíos: si algún lote enlazado como "En camino" cambió de proveedor después
   // de haberlo enlazado aquí (ej. se corrigió en la pestaña Envíos), esto lo
   // pone al día sin tener que volver a tocar el selector de envío.
   useEffect(() => {
     let resolved: string | undefined;
     for (const v of variants) {
-      const shipmentId = v.incoming?.shipmentId;
-      if (!shipmentId) continue;
-      const shipment = shipments.find((s) => s.id === shipmentId);
-      if (shipment?.providerId) resolved = shipment.providerId;
+      for (const b of v.incoming) {
+        if (!b.shipmentId) continue;
+        const shipment = shipments.find((s) => s.id === b.shipmentId);
+        if (shipment?.providerId) resolved = shipment.providerId;
+      }
     }
     if (resolved && resolved !== form.providerId) {
       setForm((f) => ({ ...f, providerId: resolved! }));
@@ -107,7 +123,7 @@ export default function ProductForm({
   const selectedCategory = categories.find((c) => c.id === form.categoryId);
   const isJersey = selectedCategory?.isJerseyLike ?? false;
   const needsSize = selectedCategory?.usesSizes ?? false;
-  const incomingShipments = shipments.filter(
+  const openFactoryShipments = shipments.filter(
     (s) => s.origin === "Fábrica" && s.status !== "Entregado"
   );
 
@@ -124,18 +140,8 @@ export default function ProductForm({
       patches: nextIsJersey ? f.patches : []
     }));
     if (!nextNeedsSize) {
-      const totalQuantity = variants.reduce(
-        (sum, v) => sum + (v.stockStatus === "En stock" ? v.quantity : 0),
-        0
-      );
-      setVariants([
-        {
-          size: "",
-          stockStatus: totalQuantity > 0 ? "En stock" : "Agotado",
-          quantity: totalQuantity || 1,
-          incoming: null
-        }
-      ]);
+      const totalQuantity = variants.reduce((sum, v) => sum + v.quantity, 0);
+      setVariants([{ size: "", quantity: totalQuantity, incoming: totalQuantity > 0 ? [] : [emptyBatch()] }]);
       setPersonalizedUnits([]);
     } else if (variants.some((v) => v.size === "")) {
       setVariants([]);
@@ -148,49 +154,28 @@ export default function ProductForm({
     );
   }
 
-  function updateVariant(index: number, patch: Partial<ProductVariant>) {
-    setVariants((vs) => vs.map((v, i) => (i === index ? { ...v, ...patch } : v)));
+  function setVariantQuantity(index: number, quantity: number) {
+    setVariants((vs) => vs.map((v, i) => (i === index ? { ...v, quantity } : v)));
   }
 
-  function setVariantStockStatus(index: number, stockStatus: ProductStockStatus) {
-    setVariants((vs) =>
-      vs.map((v, i) => {
-        if (i !== index) return v;
-        return {
-          ...v,
-          stockStatus,
-          quantity: stockStatus === "En stock" ? v.quantity || 1 : 0,
-          incoming:
-            stockStatus === "En camino" ? v.incoming ?? { shipmentId: "", quantity: 1, reserved: 0 } : null
-        };
-      })
-    );
+  function addBatch(index: number) {
+    setVariants((vs) => vs.map((v, i) => (i === index ? { ...v, incoming: [...v.incoming, emptyBatch()] } : v)));
   }
 
-  /** El proveedor ya no se elige a mano: se copia del envío que se enlace como
-   * "En camino" (el proveedor vive en el envío). Si el producto tiene tallas de
-   * varios envíos, gana el último que se enlace. */
-  function applyShipmentProvider(shipmentId: string) {
-    const shipment = shipments.find((s) => s.id === shipmentId);
-    setForm((f) => ({ ...f, providerId: shipment?.providerId ?? "" }));
-  }
-
-  function setVariantIncomingShipment(index: number, shipmentId: string) {
+  function updateBatch(index: number, batchId: string, patch: Partial<IncomingBatch>) {
     setVariants((vs) =>
       vs.map((v, i) =>
-        i === index
-          ? {
-              ...v,
-              incoming: {
-                shipmentId,
-                quantity: v.incoming?.quantity ?? 1,
-                reserved: v.incoming?.reserved ?? 0
-              }
-            }
-          : v
+        i !== index
+          ? v
+          : { ...v, incoming: v.incoming.map((b) => (b.id === batchId ? { ...b, ...patch } : b)) }
       )
     );
-    applyShipmentProvider(shipmentId);
+  }
+
+  function removeBatch(index: number, batchId: string) {
+    setVariants((vs) =>
+      vs.map((v, i) => (i !== index ? v : { ...v, incoming: v.incoming.filter((b) => b.id !== batchId) }))
+    );
   }
 
   function addPatch() {
@@ -238,10 +223,8 @@ export default function ProductForm({
     ]);
     setVariants((vs) => {
       const idx = vs.findIndex((v) => v.size === size);
-      if (idx === -1) return [...vs, { size, stockStatus: "En stock", quantity: puQty, incoming: null }];
-      return vs.map((v, i) =>
-        i === idx ? { ...v, quantity: v.quantity + puQty, stockStatus: "En stock" } : v
-      );
+      if (idx === -1) return [...vs, { size, quantity: puQty, incoming: [] }];
+      return vs.map((v, i) => (i === idx ? { ...v, quantity: v.quantity + puQty } : v));
     });
     setPuSize("");
     setPuName("");
@@ -297,21 +280,22 @@ export default function ProductForm({
     }
     for (const v of variants) {
       const label = v.size ? ` (talla ${v.size})` : "";
-      if (v.stockStatus === "En stock" && v.quantity < 1) {
-        setError(`Indica cuántas piezas hay en stock${label}.`);
+      if (v.quantity < 0) {
+        setError(`La cantidad en stock${label} no puede ser negativa.`);
         return;
       }
-      if (v.stockStatus === "En camino") {
-        if (!v.incoming?.shipmentId) {
-          setError(`Elige en qué envío vienen las piezas${label}.`);
+      const total = v.quantity + v.incoming.reduce((sum, b) => sum + b.quantity, 0);
+      if (total <= 0) {
+        setError(`Indica cuántas piezas hay (en stock o en camino)${label}.`);
+        return;
+      }
+      for (const b of v.incoming) {
+        if (!b.quantity || b.quantity < 1) {
+          setError(`Indica cuántas piezas vienen en un lote en camino${label}.`);
           return;
         }
-        if (!v.incoming.quantity || v.incoming.quantity < 1) {
-          setError(`Indica cuántas piezas vienen en camino${label}.`);
-          return;
-        }
-        if (v.incoming.reserved > v.incoming.quantity) {
-          setError(`Ya hay pedidos apartando más piezas de las que estás dejando en el lote${label}.`);
+        if (b.reserved > b.quantity) {
+          setError(`Ya hay pedidos apartando más piezas de las que estás dejando en un lote${label}.`);
           return;
         }
       }
@@ -325,6 +309,59 @@ export default function ProductForm({
     } finally {
       setSaving(false);
     }
+  }
+
+  function renderBatchRow(variantIndex: number, batch: IncomingBatch) {
+    return (
+      <div key={batch.id} className="incoming-batch-row">
+        <input
+          type="number"
+          min={1}
+          className="line-qty-input"
+          title="Piezas en este lote"
+          value={batch.quantity}
+          onChange={(e) => updateBatch(variantIndex, batch.id, { quantity: Number(e.target.value) })}
+        />
+        <select
+          value={batch.destination}
+          onChange={(e) =>
+            updateBatch(variantIndex, batch.id, {
+              destination: e.target.value as IncomingBatchDestination
+            })
+          }
+          title="A dónde llega este lote"
+        >
+          {INCOMING_BATCH_DESTINATIONS.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+        <select
+          value={batch.shipmentId ?? ""}
+          onChange={(e) => updateBatch(variantIndex, batch.id, { shipmentId: e.target.value || null })}
+          title="Envío que trae este lote"
+        >
+          <option value="">Sin envío (en fábrica)</option>
+          {openFactoryShipments.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.provider} · #{s.trackingNumber}
+            </option>
+          ))}
+        </select>
+        {!!batch.reserved && (
+          <span className="field-hint">{batch.reserved} ya apartadas</span>
+        )}
+        <button
+          type="button"
+          className="thumb-remove"
+          onClick={() => removeBatch(variantIndex, batch.id)}
+          title="Quitar este lote"
+        >
+          ×
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -440,8 +477,8 @@ export default function ProductForm({
           {!showManualProvider ? (
             <>
               <span className="field-hint">
-                Se toma automáticamente del envío que enlaces abajo como "En camino" — no hace falta
-                elegirlo aquí.
+                Se toma automáticamente del envío que enlaces abajo a un lote "En camino" — no
+                hace falta elegirlo aquí.
               </span>
               <button
                 type="button"
@@ -573,156 +610,61 @@ export default function ProductForm({
                       {size}
                     </label>
                     {variant && (
-                      <div className="variant-fields">
-                        <select
-                          value={variant.stockStatus}
-                          onChange={(e) => setVariantStockStatus(idx, e.target.value as ProductStockStatus)}
-                        >
-                          {PRODUCT_STOCK_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </select>
-                        {variant.stockStatus === "En stock" && (
+                      <div className="variant-fields variant-fields-stacked">
+                        <div className="incoming-batch-row">
                           <input
                             type="number"
-                            min={1}
+                            min={0}
                             className="line-qty-input"
                             title="Cantidad en stock"
                             value={variant.quantity}
-                            onChange={(e) => updateVariant(idx, { quantity: Number(e.target.value) })}
+                            onChange={(e) => setVariantQuantity(idx, Number(e.target.value))}
                           />
-                        )}
-                        {variant.stockStatus === "En camino" && (
-                          <>
-                            <select
-                              value={variant.incoming?.shipmentId ?? ""}
-                              onChange={(e) => setVariantIncomingShipment(idx, e.target.value)}
-                            >
-                              <option value="" disabled>
-                                Envío...
-                              </option>
-                              {incomingShipments.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                  {s.provider} · #{s.trackingNumber}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              type="number"
-                              min={1}
-                              className="line-qty-input"
-                              title="Piezas en camino"
-                              value={variant.incoming?.quantity ?? 1}
-                              onChange={(e) =>
-                                updateVariant(idx, {
-                                  incoming: {
-                                    shipmentId: variant.incoming?.shipmentId ?? "",
-                                    quantity: Number(e.target.value),
-                                    reserved: variant.incoming?.reserved ?? 0
-                                  }
-                                })
-                              }
-                            />
-                          </>
-                        )}
+                          <span className="field-hint">en stock</span>
+                        </div>
+                        {variant.incoming.map((b) => renderBatchRow(idx, b))}
+                        <button type="button" className="link-button" onClick={() => addBatch(idx)}>
+                          + Agregar lote en camino
+                        </button>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
-            {incomingShipments.length === 0 && variants.some((v) => v.stockStatus === "En camino") && (
+            {openFactoryShipments.length === 0 && variants.some((v) => v.incoming.length > 0) && (
               <span className="field-hint">
-                No hay envíos de fábrica pendientes. Crea uno primero en la pestaña Envíos.
+                No hay envíos de fábrica pendientes todavía — los lotes sin envío quedan "En
+                fábrica" hasta que crees uno en la pestaña Envíos y lo enlaces aquí.
               </span>
             )}
             <span className="field-hint">
-              Marca las tallas que tiene este diseño; todas quedan en el mismo producto.
+              Marca las tallas que tiene este diseño. Una talla puede tener piezas en stock y uno o
+              varios lotes en camino al mismo tiempo.
             </span>
           </div>
         ) : (
           variants[0] && (
-            <>
-              <label>
-                Estado de stock *
-                <select
-                  value={variants[0].stockStatus}
-                  onChange={(e) => setVariantStockStatus(0, e.target.value as ProductStockStatus)}
-                >
-                  {PRODUCT_STOCK_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {variants[0].stockStatus === "En stock" && (
-                <label>
-                  Cantidad en stock *
+            <div className="form-field">
+              <span className="form-field-title">Existencias *</span>
+              <div className="variant-fields variant-fields-stacked">
+                <div className="incoming-batch-row">
                   <input
                     type="number"
-                    min={1}
+                    min={0}
+                    className="line-qty-input"
+                    title="Cantidad en stock"
                     value={variants[0].quantity}
-                    onChange={(e) => updateVariant(0, { quantity: Number(e.target.value) })}
-                    required
+                    onChange={(e) => setVariantQuantity(0, Number(e.target.value))}
                   />
-                </label>
-              )}
-
-              {variants[0].stockStatus === "En camino" && (
-                <>
-                  <label>
-                    Envío *
-                    <select
-                      value={variants[0].incoming?.shipmentId ?? ""}
-                      onChange={(e) => setVariantIncomingShipment(0, e.target.value)}
-                      required
-                    >
-                      <option value="" disabled>
-                        Selecciona un envío...
-                      </option>
-                      {incomingShipments.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.provider} · #{s.trackingNumber}
-                        </option>
-                      ))}
-                    </select>
-                    {incomingShipments.length === 0 && (
-                      <span className="field-hint">
-                        No hay envíos de fábrica pendientes. Crea uno primero en la pestaña Envíos.
-                      </span>
-                    )}
-                  </label>
-
-                  <label>
-                    Cuántas piezas vienen *
-                    <input
-                      type="number"
-                      min={1}
-                      value={variants[0].incoming?.quantity ?? 1}
-                      onChange={(e) =>
-                        updateVariant(0, {
-                          incoming: {
-                            shipmentId: variants[0].incoming?.shipmentId ?? "",
-                            quantity: Number(e.target.value),
-                            reserved: variants[0].incoming?.reserved ?? 0
-                          }
-                        })
-                      }
-                      required
-                    />
-                    {!!variants[0].incoming?.reserved && (
-                      <span className="field-hint">
-                        {variants[0].incoming.reserved} de esas piezas ya están apartadas por pedidos.
-                      </span>
-                    )}
-                  </label>
-                </>
-              )}
-            </>
+                  <span className="field-hint">en stock</span>
+                </div>
+                {variants[0].incoming.map((b) => renderBatchRow(0, b))}
+                <button type="button" className="link-button" onClick={() => addBatch(0)}>
+                  + Agregar lote en camino
+                </button>
+              </div>
+            </div>
           )
         )}
 

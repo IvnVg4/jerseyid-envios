@@ -14,9 +14,11 @@ export default function ShipmentCard({ shipment, products, onEdit, onDelete }: P
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const linkedVariants = products.flatMap((p) =>
-    p.variants
-      .filter((v) => v.incoming?.shipmentId === shipment.id)
-      .map((v) => ({ product: p, size: v.size, quantity: v.incoming!.quantity, reserved: v.incoming!.reserved }))
+    p.variants.flatMap((v) =>
+      v.incoming
+        .filter((b) => b.shipmentId === shipment.id)
+        .map((b) => ({ product: p, size: v.size, quantity: b.quantity, reserved: b.reserved }))
+    )
   );
 
   return (

@@ -7,21 +7,26 @@ import {
   OrderFulfillmentType,
   OrderInput,
   OrderLine,
-  OrderLineStatus,
   OrderShippingAddress,
   Product,
+  ProductInput,
   ProductSize,
+  Provider,
   Shipment
 } from "../types";
+import { batchAvailable } from "../services/inventory";
 import OrderLineStatusBadge from "./OrderLineStatusBadge";
+import ProductForm from "./ProductForm";
 
 interface Props {
   initial?: Order | null;
   products: Product[];
   categories: Category[];
   shipments: Shipment[];
+  providers: Provider[];
   onCancel: () => void;
   onSave: (input: OrderInput) => Promise<void>;
+  onCreateProduct: (input: ProductInput) => Promise<string>;
 }
 
 const EMPTY: OrderInput = {
@@ -49,9 +54,10 @@ function lineMatchesVariant(line: OrderLine, product: Product, size: string): bo
   return !line.size && product.variants.length === 1;
 }
 
-/** Piezas que esa talla del producto todavía puede ofrecer para este pedido: lo
- * disponible ahora, más lo que este mismo pedido ya tenía reservado originalmente
- * (se puede reasignar), menos lo que el borrador actual ya está pidiendo. */
+/** Piezas que esa talla del producto todavía puede ofrecer para este pedido (stock +
+ * lotes en camino/fábrica juntos): lo disponible ahora, más lo que este mismo pedido
+ * ya tenía apartado originalmente (se puede reasignar), menos lo que el borrador
+ * actual ya está pidiendo. */
 function availableQuantity(
   product: Product,
   size: string,
@@ -60,29 +66,77 @@ function availableQuantity(
 ): number {
   const variant = product.variants.find((v) => v.size === size);
   if (!variant) return 0;
-  if (variant.stockStatus === "En stock") {
-    const givenBack = initialLines
-      .filter((l) => lineMatchesVariant(l, product, size) && l.status === "Vendida")
-      .reduce((sum, l) => sum + l.quantity, 0);
-    const drafted = draftLines
-      .filter((l) => lineMatchesVariant(l, product, size) && l.status === "Vendida")
-      .reduce((sum, l) => sum + l.quantity, 0);
-    return variant.quantity + givenBack - drafted;
-  }
-  if (variant.stockStatus === "En camino" && variant.incoming) {
-    const pool = variant.incoming.quantity - variant.incoming.reserved;
-    const givenBack = initialLines
-      .filter((l) => lineMatchesVariant(l, product, size) && l.status === "Bajo pedido")
-      .reduce((sum, l) => sum + l.quantity, 0);
-    const drafted = draftLines
-      .filter((l) => lineMatchesVariant(l, product, size) && l.status === "Bajo pedido")
-      .reduce((sum, l) => sum + l.quantity, 0);
-    return pool + givenBack - drafted;
-  }
-  return 0;
+  const givenBack = initialLines
+    .filter((l) => lineMatchesVariant(l, product, size))
+    .reduce((sum, l) => sum + l.quantity, 0);
+  const drafted = draftLines
+    .filter((l) => lineMatchesVariant(l, product, size))
+    .reduce((sum, l) => sum + l.quantity, 0);
+  const total = variant.quantity + variant.incoming.reduce((sum, b) => sum + b.quantity, 0);
+  return total + givenBack - drafted;
 }
 
-export default function OrderForm({ initial, products, categories, shipments, onCancel, onSave }: Props) {
+interface Allocation {
+  quantity: number;
+  sourceBatchId: string | null;
+  shipmentId: string | null;
+}
+
+/** Reparte la cantidad pedida entre el stock físico y los lotes en camino/fábrica
+ * de esa talla, en ese orden — así "pido 8 y da que 2 son de stock y 6 de un lote
+ * en camino" no requiere que quien captura sepa de dónde sale cada pieza. Cada
+ * entrada del resultado se vuelve una `OrderLine` propia (mismo producto/talla). */
+function allocateSources(
+  product: Product,
+  size: string,
+  requestedQty: number,
+  initialLines: OrderLine[],
+  draftLines: OrderLine[]
+): Allocation[] {
+  const variant = product.variants.find((v) => v.size === size);
+  if (!variant) return [];
+
+  const givenBackFor = (sourceBatchId: string | null) =>
+    initialLines
+      .filter((l) => lineMatchesVariant(l, product, size) && l.sourceBatchId === sourceBatchId)
+      .reduce((sum, l) => sum + l.quantity, 0);
+  const draftedFor = (sourceBatchId: string | null) =>
+    draftLines
+      .filter((l) => lineMatchesVariant(l, product, size) && l.sourceBatchId === sourceBatchId)
+      .reduce((sum, l) => sum + l.quantity, 0);
+
+  const allocations: Allocation[] = [];
+  let remaining = requestedQty;
+
+  const stockAvailable = variant.quantity + givenBackFor(null) - draftedFor(null);
+  if (stockAvailable > 0 && remaining > 0) {
+    const take = Math.min(stockAvailable, remaining);
+    allocations.push({ quantity: take, sourceBatchId: null, shipmentId: null });
+    remaining -= take;
+  }
+
+  for (const b of variant.incoming) {
+    if (remaining <= 0) break;
+    const batchAvail = batchAvailable(b) + givenBackFor(b.id) - draftedFor(b.id);
+    if (batchAvail <= 0) continue;
+    const take = Math.min(batchAvail, remaining);
+    allocations.push({ quantity: take, sourceBatchId: b.id, shipmentId: b.shipmentId });
+    remaining -= take;
+  }
+
+  return allocations;
+}
+
+export default function OrderForm({
+  initial,
+  products,
+  categories,
+  shipments,
+  providers,
+  onCancel,
+  onSave,
+  onCreateProduct
+}: Props) {
   const [form, setForm] = useState<OrderInput>(EMPTY);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedSize, setSelectedSize] = useState<ProductSize | "">("");
@@ -92,6 +146,8 @@ export default function OrderForm({ initial, products, categories, shipments, on
   const [lineCustomNumber, setLineCustomNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [creatingProduct, setCreatingProduct] = useState(false);
+  const [pendingNewProductId, setPendingNewProductId] = useState<string | null>(null);
 
   const initialLines = initial?.lines ?? [];
 
@@ -103,6 +159,22 @@ export default function OrderForm({ initial, products, categories, shipments, on
       setForm(EMPTY);
     }
   }, [initial]);
+
+  // En cuanto el producto recién creado desde "+ Producto nuevo" aparece en el
+  // snapshot en vivo, se autoselecciona — no hace falta ir a buscarlo al select.
+  useEffect(() => {
+    if (!pendingNewProductId) return;
+    const created = products.find((p) => p.id === pendingNewProductId);
+    if (created) {
+      setSelectedProductId(created.id);
+      setLineUnitPrice(created.price);
+      const firstAvailable = created.variants.find(
+        (v) => availableQuantity(created, v.size, initialLines, form.lines) > 0
+      );
+      setSelectedSize(firstAvailable?.size ?? "");
+      setPendingNewProductId(null);
+    }
+  }, [products, pendingNewProductId]);
 
   const sellableProducts = products.filter((p) =>
     p.variants.some((v) => availableQuantity(p, v.size, initialLines, form.lines) > 0)
@@ -142,30 +214,32 @@ export default function OrderForm({ initial, products, categories, shipments, on
       return;
     }
 
-    const variant =
-      product.variants.find((v) => v.size === size) ??
-      (product.variants.length === 1 ? product.variants[0] : undefined);
-    const status: OrderLineStatus = variant?.stockStatus === "En stock" ? "Vendida" : "Bajo pedido";
-    const shipmentId = status === "Bajo pedido" ? variant?.incoming?.shipmentId ?? null : null;
-
-    const line: OrderLine = {
+    const allocations = allocateSources(product, size, lineQuantity, initialLines, form.lines);
+    const newLines: OrderLine[] = allocations.map((a) => ({
       productId: product.id,
       productName: product.name,
       size,
-      quantity: lineQuantity,
-      status,
-      shipmentId,
+      quantity: a.quantity,
+      status: a.shipmentId ? "Enviado" : "En preparación",
+      sourceBatchId: a.sourceBatchId,
+      shipmentId: a.shipmentId,
       unitPrice: lineUnitPrice,
       customName: product.personalized ? lineCustomName.trim() : "",
       customNumber: product.personalized ? lineCustomNumber.trim() : ""
-    };
-    setForm((f) => ({ ...f, lines: [...f.lines, line] }));
+    }));
+    setForm((f) => ({ ...f, lines: [...f.lines, ...newLines] }));
     setSelectedProductId("");
     setSelectedSize("");
     setLineQuantity(1);
     setLineUnitPrice(0);
     setLineCustomName("");
     setLineCustomNumber("");
+  }
+
+  async function handleCreateProduct(input: ProductInput) {
+    const id = await onCreateProduct(input);
+    setPendingNewProductId(id);
+    setCreatingProduct(false);
   }
 
   function updateAddress(field: keyof OrderShippingAddress, value: string) {
@@ -197,14 +271,14 @@ export default function OrderForm({ initial, products, categories, shipments, on
     }));
   }
 
-  /** Al quitar "Entregado": si la línea venía de un envío, regresa a "Listo para
-   * entregar"; si era venta directa de stock, regresa a "Vendida". No mueve stock
-   * en ningún caso (ambos extremos ya están fuera del conteo general). */
+  /** Al quitar "Entregado": si la línea ya tiene un envío enlazado, regresa a
+   * "Listo para entregar"; si no, a "En preparación". No mueve stock en ningún
+   * caso (ambos extremos ya están fuera del conteo general). */
   function revertLineDelivered(index: number) {
     setForm((f) => ({
       ...f,
       lines: f.lines.map((l, i) =>
-        i === index ? { ...l, status: l.shipmentId ? "Listo para entregar" : "Vendida" } : l
+        i === index ? { ...l, status: l.shipmentId ? "Listo para entregar" : "En preparación" } : l
       )
     }));
   }
@@ -435,6 +509,11 @@ export default function OrderForm({ initial, products, categories, shipments, on
               Agregar
             </button>
           </div>
+          <div className="tag-input-row">
+            <button type="button" className="link-button" onClick={() => setCreatingProduct(true)}>
+              + Producto nuevo (se guarda también en Inventario)
+            </button>
+          </div>
           {selectedProduct?.personalized && (
             <div className="tag-input-row">
               <input
@@ -559,6 +638,16 @@ export default function OrderForm({ initial, products, categories, shipments, on
           </button>
         </div>
       </form>
+
+      {creatingProduct && (
+        <ProductForm
+          categories={categories}
+          shipments={shipments}
+          providers={providers}
+          onCancel={() => setCreatingProduct(false)}
+          onSave={handleCreateProduct}
+        />
+      )}
     </div>
   );
 }

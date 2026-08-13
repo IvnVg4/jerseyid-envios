@@ -51,12 +51,13 @@ export function subscribeToShipments(
   );
 }
 
-export async function createShipment(input: ShipmentInput) {
-  await addDoc(collection(db, COLLECTION), {
+export async function createShipment(input: ShipmentInput): Promise<string> {
+  const ref = await addDoc(collection(db, COLLECTION), {
     ...input,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
+  return ref.id;
 }
 
 export async function updateShipment(id: string, input: ShipmentInput) {
