@@ -36,6 +36,7 @@ import {
   deleteOrder,
   markAllOrderLinesDelivered,
   markOrderLineDelivered,
+  NewBatchRequest,
   removeOrderLine,
   revertAllOrderLinesDelivered,
   revertOrderLineDelivered,
@@ -339,11 +340,11 @@ export default function App() {
     setPendingDeleteProduct(null);
   }
 
-  async function handleSaveOrder(input: OrderInput) {
+  async function handleSaveOrder(input: OrderInput, newBatches: NewBatchRequest[]) {
     if (editingOrder && editingOrder !== "new") {
-      await updateOrder(editingOrder.id, editingOrder, input, products);
+      await updateOrder(editingOrder.id, editingOrder, input, products, newBatches);
     } else {
-      await createOrder(input, products);
+      await createOrder(input, products, newBatches);
     }
     setEditingOrder(null);
   }

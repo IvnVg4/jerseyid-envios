@@ -10,11 +10,67 @@ import {
   writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Order, OrderInput, OrderLine, Product, ProductVariant, Provider, Shipment } from "../types";
+import type {
+  IncomingBatch,
+  Order,
+  OrderInput,
+  OrderLine,
+  Product,
+  ProductSize,
+  ProductVariant,
+  Provider,
+  Shipment
+} from "../types";
 import { resolveUnitCost } from "./costing";
 
 const ORDERS = "orders";
 const PRODUCTS = "products";
+
+/** Un lote "En fábrica" que hay que crear de cero porque la talla pedida no
+ * tenía suficiente stock ni lotes existentes (ver `allocateSources` en
+ * OrderForm) — se pide automáticamente al proveedor en vez de bloquear el
+ * pedido. */
+export interface NewBatchRequest {
+  productId: string;
+  size: ProductSize | "";
+  batchId: string;
+  quantity: number;
+}
+
+/** Agrega, sobre una copia de `products`, los lotes nuevos que todavía no
+ * existen en Firestore (creando la variante de esa talla si hace falta) — así
+ * `applyProductDeltas` los encuentra igual que si ya existieran y les aplica la
+ * reserva de la línea que los originó en el mismo movimiento. */
+function injectNewBatches(products: Product[], newBatches: NewBatchRequest[]): Product[] {
+  if (newBatches.length === 0) return products;
+  const byProduct = new Map<string, NewBatchRequest[]>();
+  for (const nb of newBatches) {
+    if (!byProduct.has(nb.productId)) byProduct.set(nb.productId, []);
+    byProduct.get(nb.productId)!.push(nb);
+  }
+  return products.map((p) => {
+    const additions = byProduct.get(p.id);
+    if (!additions) return p;
+    let variants = p.variants.map((v) => ({ ...v, incoming: [...v.incoming] }));
+    for (const nb of additions) {
+      const newBatch: IncomingBatch = {
+        id: nb.batchId,
+        quantity: nb.quantity,
+        reserved: 0,
+        purchaseOrderId: null,
+        shipmentId: null,
+        destination: "Tienda"
+      };
+      const idx = variants.findIndex((v) => v.size === nb.size);
+      if (idx === -1) {
+        variants = [...variants, { size: nb.size, quantity: 0, incoming: [newBatch] }];
+      } else {
+        variants[idx] = { ...variants[idx], incoming: [...variants[idx].incoming, newBatch] };
+      }
+    }
+    return { ...p, variants };
+  });
+}
 
 function toMillis(value: Timestamp | undefined): number {
   return value ? value.toMillis() : Date.now();
@@ -189,11 +245,16 @@ function applyProductDeltas(
   }
 }
 
-export async function createOrder(input: OrderInput, products: Product[]) {
+export async function createOrder(
+  input: OrderInput,
+  products: Product[],
+  newBatches: NewBatchRequest[] = []
+) {
   const batch = writeBatch(db);
+  const workingProducts = injectNewBatches(products, newBatches);
   const stockDelta = computeStockDelta([], input.lines);
   const batchReservedDelta = computeBatchReservedDelta([], input.lines);
-  applyProductDeltas(batch, products, stockDelta, batchReservedDelta);
+  applyProductDeltas(batch, workingProducts, stockDelta, batchReservedDelta);
 
   const orderRef = doc(collection(db, ORDERS));
   batch.set(orderRef, {
@@ -209,12 +270,14 @@ export async function updateOrder(
   id: string,
   oldOrder: Order,
   input: OrderInput,
-  products: Product[]
+  products: Product[],
+  newBatches: NewBatchRequest[] = []
 ) {
   const batch = writeBatch(db);
+  const workingProducts = injectNewBatches(products, newBatches);
   const stockDelta = computeStockDelta(oldOrder.lines, input.lines);
   const batchReservedDelta = computeBatchReservedDelta(oldOrder.lines, input.lines);
-  applyProductDeltas(batch, products, stockDelta, batchReservedDelta);
+  applyProductDeltas(batch, workingProducts, stockDelta, batchReservedDelta);
 
   batch.update(doc(db, ORDERS, id), {
     ...input,

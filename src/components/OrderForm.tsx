@@ -8,6 +8,7 @@ import {
   OrderInput,
   OrderLine,
   OrderShippingAddress,
+  PRODUCT_SIZES,
   Product,
   ProductInput,
   ProductSize,
@@ -15,6 +16,7 @@ import {
   Shipment
 } from "../types";
 import { batchAvailable } from "../services/inventory";
+import { NewBatchRequest } from "../services/orders";
 import OrderLineStatusBadge from "./OrderLineStatusBadge";
 import ProductForm from "./ProductForm";
 import ProductPicker from "./ProductPicker";
@@ -26,7 +28,7 @@ interface Props {
   shipments: Shipment[];
   providers: Provider[];
   onCancel: () => void;
-  onSave: (input: OrderInput) => Promise<void>;
+  onSave: (input: OrderInput, newBatches: NewBatchRequest[]) => Promise<void>;
   onCreateProduct: (input: ProductInput) => Promise<string>;
 }
 
@@ -143,6 +145,7 @@ export default function OrderForm({
   const [error, setError] = useState<string | null>(null);
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [pendingNewProductId, setPendingNewProductId] = useState<string | null>(null);
+  const [pendingNewBatches, setPendingNewBatches] = useState<NewBatchRequest[]>([]);
 
   const initialLines = initial?.lines ?? [];
 
@@ -171,15 +174,16 @@ export default function OrderForm({
     }
   }, [products, pendingNewProductId]);
 
-  const sellableProducts = products.filter((p) =>
-    p.variants.some((v) => availableQuantity(p, v.size, initialLines, form.lines) > 0)
-  );
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const needsSizePick = !!selectedProduct && selectedProduct.variants.some((v) => v.size !== "");
+  // Se muestran TODAS las tallas posibles, no solo las que ya tienen piezas
+  // disponibles: si se pide una talla sin stock ni lotes, el faltante se pide
+  // automáticamente de fábrica al agregar la línea (ver addLine).
   const availableSizes = selectedProduct
-    ? selectedProduct.variants.filter(
-        (v) => availableQuantity(selectedProduct, v.size, initialLines, form.lines) > 0
-      )
+    ? PRODUCT_SIZES.map((size) => ({
+        size,
+        available: availableQuantity(selectedProduct, size, initialLines, form.lines)
+      }))
     : [];
   const matchingPersonalizedUnits =
     selectedProduct?.personalizedUnits.filter((u) => u.size === selectedSize) ?? [];
@@ -211,15 +215,19 @@ export default function OrderForm({
       setError("La cantidad debe ser al menos 1.");
       return;
     }
-    const available = availableQuantity(product, size, initialLines, form.lines);
-    if (lineQuantity > available) {
-      setError(
-        `Solo hay ${available} pieza(s) disponible(s)${size ? ` de la talla ${size}` : ""} de "${product.name}".`
-      );
-      return;
+
+    // Se reparte lo pedido entre stock y lotes existentes; lo que no alcance a
+    // cubrirse se pide automáticamente de fábrica (lote nuevo, sin envío
+    // todavía) en vez de bloquear el pedido.
+    const allocations: Allocation[] = allocateSources(product, size, lineQuantity, initialLines, form.lines);
+    const allocated = allocations.reduce((sum, a) => sum + a.quantity, 0);
+    const shortfall = lineQuantity - allocated;
+    let newBatch: NewBatchRequest | null = null;
+    if (shortfall > 0) {
+      newBatch = { productId: product.id, size, batchId: crypto.randomUUID(), quantity: shortfall };
+      allocations.push({ quantity: shortfall, sourceBatchId: newBatch.batchId, shipmentId: null });
     }
 
-    const allocations = allocateSources(product, size, lineQuantity, initialLines, form.lines);
     const newLines: OrderLine[] = allocations.map((a) => ({
       productId: product.id,
       productName: product.name,
@@ -232,6 +240,7 @@ export default function OrderForm({
       customName: product.personalized ? lineCustomName.trim() : "",
       customNumber: product.personalized ? lineCustomNumber.trim() : ""
     }));
+    if (newBatch) setPendingNewBatches((pb) => [...pb, newBatch!]);
     setForm((f) => ({ ...f, lines: [...f.lines, ...newLines] }));
     setSelectedProductId("");
     setSelectedSize("");
@@ -266,7 +275,17 @@ export default function OrderForm({
   const orderTotal = form.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
 
   function removeLine(index: number) {
+    const removed = form.lines[index];
     setForm((f) => ({ ...f, lines: f.lines.filter((_, i) => i !== index) }));
+    // Si esa línea era la única que reclamaba un lote nuevo (todavía sin guardar,
+    // pedido automáticamente de fábrica por faltante), se descarta también —
+    // si no, quedaría un lote pedido de fábrica sin ninguna línea que lo use.
+    if (removed.sourceBatchId) {
+      const stillUsed = form.lines.some((l, i) => i !== index && l.sourceBatchId === removed.sourceBatchId);
+      if (!stillUsed) {
+        setPendingNewBatches((pb) => pb.filter((b) => b.batchId !== removed.sourceBatchId));
+      }
+    }
   }
 
   function markLineDelivered(index: number) {
@@ -325,7 +344,7 @@ export default function OrderForm({
     }
     setSaving(true);
     try {
-      await onSave(form);
+      await onSave(form, pendingNewBatches);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar el pedido.");
     } finally {
@@ -457,7 +476,7 @@ export default function OrderForm({
         <label>
           Productos del pedido *
           <ProductPicker
-            products={sellableProducts}
+            products={products}
             categories={categories}
             selectedProductId={selectedProductId}
             onSelect={selectProduct}
@@ -474,10 +493,9 @@ export default function OrderForm({
                 <option value="" disabled>
                   Talla...
                 </option>
-                {availableSizes.map((v) => (
-                  <option key={v.size} value={v.size}>
-                    {v.size} —{" "}
-                    {availableQuantity(selectedProduct!, v.size, initialLines, form.lines)} disp.
+                {availableSizes.map(({ size, available }) => (
+                  <option key={size} value={size}>
+                    {size} — {available > 0 ? `${available} disp.` : "se pedirá de fábrica"}
                   </option>
                 ))}
               </select>
@@ -502,6 +520,21 @@ export default function OrderForm({
               Agregar
             </button>
           </div>
+          {selectedProduct &&
+            lineQuantity > 0 &&
+            (!needsSizePick || selectedSize) &&
+            (() => {
+              const size = needsSizePick ? selectedSize : "";
+              const available = availableQuantity(selectedProduct, size, initialLines, form.lines);
+              const shortfall = Math.max(0, lineQuantity - available);
+              if (shortfall === 0) return null;
+              return (
+                <span className="field-hint">
+                  Hay {available} disponible(s) ahora — las {shortfall} pieza(s) que faltan se
+                  pedirán automáticamente de fábrica.
+                </span>
+              );
+            })()}
           <div className="tag-input-row">
             <button type="button" className="link-button" onClick={() => setCreatingProduct(true)}>
               + Producto nuevo (se guarda también en Inventario)
@@ -540,9 +573,9 @@ export default function OrderForm({
               ))}
             </div>
           )}
-          {sellableProducts.length === 0 && (
+          {products.length === 0 && (
             <span className="field-hint">
-              No hay productos con stock disponible ni en camino para vender.
+              Todavía no hay productos en el inventario.
             </span>
           )}
         </label>
