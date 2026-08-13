@@ -1,4 +1,4 @@
-import type { IncomingBatch, ProductVariant } from "../types";
+import type { IncomingBatch, Product, ProductVariant } from "../types";
 
 /** Piezas de un lote que todavía no están apartadas por ningún pedido. */
 export function batchAvailable(batch: IncomingBatch): number {
@@ -30,4 +30,26 @@ export function summarizeVariant(variant: ProductVariant): VariantSummary {
 export function isVariantEmpty(variant: ProductVariant): boolean {
   const s = summarizeVariant(variant);
   return s.inStock === 0 && s.inFactory === 0 && s.inTransit === 0;
+}
+
+export const PRODUCT_STOCK_FILTERS = ["Todos", "En stock", "Solo en fábrica/camino", "Agotado"] as const;
+export type ProductStockFilter = (typeof PRODUCT_STOCK_FILTERS)[number];
+
+/** Estado del producto completo (todas sus tallas juntas), para filtrarlo en Inventario. */
+export function productStockState(product: Product): "En stock" | "Solo en fábrica/camino" | "Agotado" {
+  let hasStock = false;
+  let hasIncoming = false;
+  for (const v of product.variants) {
+    const s = summarizeVariant(v);
+    if (s.inStock > 0) hasStock = true;
+    if (s.inFactory > 0 || s.inTransit > 0) hasIncoming = true;
+  }
+  if (hasStock) return "En stock";
+  if (hasIncoming) return "Solo en fábrica/camino";
+  return "Agotado";
+}
+
+export function matchesStockFilter(product: Product, filter: ProductStockFilter): boolean {
+  if (filter === "Todos") return true;
+  return productStockState(product) === filter;
 }

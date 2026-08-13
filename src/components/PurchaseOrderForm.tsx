@@ -10,7 +10,9 @@ import {
   PurchaseOrderInput,
   PurchaseOrderLine
 } from "../types";
+import { summarizeVariant } from "../services/inventory";
 import ProductForm from "./ProductForm";
+import ProductPicker from "./ProductPicker";
 
 interface Props {
   products: Product[];
@@ -31,12 +33,6 @@ const EMPTY: PurchaseOrderInput = {
   lines: [],
   notes: ""
 };
-
-function productLabel(product: Product, categories: Category[]) {
-  const categoryName = categories.find((c) => c.id === product.categoryId)?.name ?? "";
-  const attrs = [categoryName, product.sleeve, product.version].filter(Boolean).join(" · ");
-  return `${product.name} (${attrs})`;
-}
 
 export default function PurchaseOrderForm({
   products,
@@ -68,6 +64,12 @@ export default function PurchaseOrderForm({
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const needsSizePick = !!selectedProduct && selectedProduct.variants.some((v) => v.size !== "");
+
+  function selectProduct(id: string) {
+    const product = products.find((p) => p.id === id);
+    setSelectedProductId(id);
+    setSelectedSize(product?.variants[0]?.size ?? "");
+  }
 
   function addLine() {
     setError(null);
@@ -235,24 +237,21 @@ export default function PurchaseOrderForm({
 
         <label>
           Productos del pedido *
+          <ProductPicker
+            products={products}
+            categories={categories}
+            selectedProductId={selectedProductId}
+            onSelect={selectProduct}
+            getSubtitle={(p) => {
+              const totalIncoming = p.variants.reduce(
+                (sum, v) => sum + summarizeVariant(v).inFactory + summarizeVariant(v).inTransit,
+                0
+              );
+              const totalStock = p.variants.reduce((sum, v) => sum + summarizeVariant(v).inStock, 0);
+              return `${totalStock} en stock · ${totalIncoming} en camino`;
+            }}
+          />
           <div className="tag-input-row product-picker-row">
-            <select
-              className="product-picker-select"
-              value={selectedProductId}
-              onChange={(e) => {
-                const id = e.target.value;
-                const product = products.find((p) => p.id === id);
-                setSelectedProductId(id);
-                setSelectedSize(product?.variants[0]?.size ?? "");
-              }}
-            >
-              <option value="">Selecciona un producto...</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {productLabel(p, categories)}
-                </option>
-              ))}
-            </select>
             {needsSizePick && (
               <select
                 value={selectedSize}

@@ -17,6 +17,7 @@ import {
 import { batchAvailable } from "../services/inventory";
 import OrderLineStatusBadge from "./OrderLineStatusBadge";
 import ProductForm from "./ProductForm";
+import ProductPicker from "./ProductPicker";
 
 interface Props {
   initial?: Order | null;
@@ -39,12 +40,6 @@ const EMPTY: OrderInput = {
   lines: [],
   notes: ""
 };
-
-function productLabel(product: Product, categories: Category[]) {
-  const categoryName = categories.find((c) => c.id === product.categoryId)?.name ?? "";
-  const attrs = [categoryName, product.sleeve, product.version].filter(Boolean).join(" · ");
-  return `${product.name} (${attrs})`;
-}
 
 /** Una línea vieja (previa a que las tallas se unieran en un solo producto) puede no
  * traer `size`; para un producto de una sola variante eso sigue siendo esa variante. */
@@ -188,6 +183,16 @@ export default function OrderForm({
     : [];
   const matchingPersonalizedUnits =
     selectedProduct?.personalizedUnits.filter((u) => u.size === selectedSize) ?? [];
+
+  function selectProduct(id: string) {
+    const product = products.find((p) => p.id === id);
+    setSelectedProductId(id);
+    setLineUnitPrice(product?.price ?? 0);
+    const firstAvailable = product?.variants.find(
+      (v) => product && availableQuantity(product, v.size, initialLines, form.lines) > 0
+    );
+    setSelectedSize(firstAvailable?.size ?? "");
+  }
 
   function addLine() {
     setError(null);
@@ -451,28 +456,16 @@ export default function OrderForm({
 
         <label>
           Productos del pedido *
+          <ProductPicker
+            products={sellableProducts}
+            categories={categories}
+            selectedProductId={selectedProductId}
+            onSelect={selectProduct}
+            getSubtitle={(p) =>
+              `${p.variants.reduce((sum, v) => sum + availableQuantity(p, v.size, initialLines, form.lines), 0)} disp.`
+            }
+          />
           <div className="tag-input-row product-picker-row">
-            <select
-              className="product-picker-select"
-              value={selectedProductId}
-              onChange={(e) => {
-                const id = e.target.value;
-                const product = products.find((p) => p.id === id);
-                setSelectedProductId(id);
-                setLineUnitPrice(product?.price ?? 0);
-                const firstAvailable = product?.variants.find(
-                  (v) => product && availableQuantity(product, v.size, initialLines, form.lines) > 0
-                );
-                setSelectedSize(firstAvailable?.size ?? "");
-              }}
-            >
-              <option value="">Selecciona un producto...</option>
-              {sellableProducts.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {productLabel(p, categories)}
-                </option>
-              ))}
-            </select>
             {needsSizePick && (
               <select
                 value={selectedSize}

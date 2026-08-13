@@ -23,6 +23,7 @@ import {
   subscribeToShipments,
   updateShipment
 } from "./services/shipments";
+import { matchesStockFilter, PRODUCT_STOCK_FILTERS, ProductStockFilter } from "./services/inventory";
 import {
   createProduct,
   deleteProduct,
@@ -109,6 +110,7 @@ export default function App() {
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
   const [productTypeFilter, setProductTypeFilter] = useState<ProductTypeFilter>("Todos");
+  const [productStockFilter, setProductStockFilter] = useState<ProductStockFilter>("Todos");
   const [editingProduct, setEditingProduct] = useState<Product | null | "new">(null);
   const [pendingDeleteProduct, setPendingDeleteProduct] = useState<Product | null>(null);
 
@@ -249,13 +251,14 @@ export default function App() {
     const term = productSearch.trim().toLowerCase();
     return products.filter((p) => {
       const matchesType = productTypeFilter === "Todos" || p.categoryId === productTypeFilter;
+      const matchesStock = matchesStockFilter(p, productStockFilter);
       const matchesTerm =
         !term ||
         p.name.toLowerCase().includes(term) ||
         p.patches.some((patch) => patch.toLowerCase().includes(term));
-      return matchesType && matchesTerm;
+      return matchesType && matchesStock && matchesTerm;
     });
-  }, [products, productSearch, productTypeFilter]);
+  }, [products, productSearch, productTypeFilter, productStockFilter]);
 
   const categoryOptions = useMemo(
     () => categories.slice().sort((a, b) => a.name.localeCompare(b.name)),
@@ -574,6 +577,16 @@ export default function App() {
               {categoryOptions.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={productStockFilter}
+              onChange={(e) => setProductStockFilter(e.target.value as ProductStockFilter)}
+            >
+              {PRODUCT_STOCK_FILTERS.map((f) => (
+                <option key={f} value={f}>
+                  {f === "Todos" ? "Todo el inventario" : f}
                 </option>
               ))}
             </select>
