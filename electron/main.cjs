@@ -33,8 +33,17 @@ function createWindow() {
 
 function setupAutoUpdates() {
   autoUpdater.autoDownload = true;
+  // Con varias versiones publicadas seguidas, el parche diferencial (blockmap)
+  // entre una instalación vieja y la nueva a veces no coincide y falla a medio
+  // aplicar (deja la app a medio actualizar). Forzar la descarga completa del
+  // instalador es más lento pero no depende de que el historial de blockmaps
+  // esté intacto — evita ese modo de falla silencioso.
+  autoUpdater.disableDifferentialDownload = true;
+
+  let downloadFailed = false;
 
   autoUpdater.on("update-downloaded", () => {
+    downloadFailed = false;
     dialog
       .showMessageBox(mainWindow, {
         type: "info",
@@ -47,7 +56,21 @@ function setupAutoUpdates() {
   });
 
   autoUpdater.on("error", (err) => {
-    console.error("Error buscando actualizaciones:", err);
+    console.error("Error buscando/descargando actualización:", err);
+    // Solo se avisa la primera vez que falla en esta sesión (y solo si ya
+    // había empezado a descargar algo) — así una racha de reintentos por mala
+    // conexión no bombardea a la usuaria con el mismo aviso cada hora.
+    if (!downloadFailed && mainWindow) {
+      downloadFailed = true;
+      dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        title: "No se pudo actualizar",
+        message: "JerseyID Envíos no pudo descargar la actualización automáticamente.",
+        detail:
+          "La app sigue funcionando normalmente con la versión actual. Si esto se repite, baja la última versión a mano desde GitHub.",
+        buttons: ["Entendido"]
+      });
+    }
   });
 
   autoUpdater.checkForUpdates();

@@ -99,20 +99,31 @@ export function subscribeToOrders(
           depositAmount: data.depositAmount ?? 0,
           fulfillmentType: data.fulfillmentType ?? "Cliente de Mérida",
           shippingAddress: data.shippingAddress ?? null,
-          lines: (data.lines ?? []).map((line: OrderLine) => ({
-            ...line,
-            size: line.size ?? "",
-            unitPrice: line.unitPrice ?? 0,
-            customName: line.customName ?? "",
-            customNumber: line.customNumber ?? "",
-            sourceBatchId: line.sourceBatchId ?? null,
+          lines: (Array.isArray(data.lines) ? data.lines : []).map((raw: Partial<OrderLine> | null) => {
+            const line = raw ?? {};
             // Pedidos guardados antes de "Vendida"/"Bajo pedido" caen a "En preparación";
-            // "Listo para entregar"/"Entregado" se conservan igual.
-            status:
-              (line.status as string) === "Vendida" || (line.status as string) === "Bajo pedido"
-                ? "En preparación"
-                : line.status
-          })),
+            // "Listo para entregar"/"Entregado" se conservan igual. Cualquier otro valor
+            // desconocido (documento dañado/de una versión futura) también cae ahí en vez
+            // de tronar la pantalla.
+            const legacyStatus = line.status as string;
+            const status =
+              legacyStatus === "Listo para entregar" || legacyStatus === "Entregado" || legacyStatus === "Enviado"
+                ? (legacyStatus as OrderLine["status"])
+                : "En preparación";
+            return {
+              productId: line.productId ?? "",
+              productName: line.productName ?? "",
+              size: line.size ?? "",
+              quantity: line.quantity ?? 0,
+              status,
+              sourceBatchId: line.sourceBatchId ?? null,
+              shipmentId: line.shipmentId ?? null,
+              unitPrice: line.unitPrice ?? 0,
+              unitCost: line.unitCost,
+              customName: line.customName ?? "",
+              customNumber: line.customNumber ?? ""
+            };
+          }),
           notes: data.notes ?? "",
           createdAt: toMillis(data.createdAt),
           updatedAt: toMillis(data.updatedAt)

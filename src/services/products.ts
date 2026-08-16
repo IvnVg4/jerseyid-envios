@@ -36,29 +36,35 @@ interface LegacyVariant {
   incoming?: LegacyIncoming | ProductVariant["incoming"][number][] | null;
 }
 
-function normalizeVariant(v: LegacyVariant): ProductVariant {
+function normalizeVariant(raw: LegacyVariant | null | undefined): ProductVariant {
+  const v = raw ?? {};
   const size = v.size ?? "";
   // Ya en el shape nuevo (incoming es un arreglo): solo rellenar defaults. Los
   // lotes de antes de que existiera `purpose` no traen ese campo — se infiere
   // "Pedido" si ya estaban reservados (así se creaban los lotes automáticos por
-  // faltante) o "Stock" si no (restock suelto/de proveedor).
+  // faltante) o "Stock" si no (restock suelto/de proveedor). Cada elemento se
+  // sanea por separado (`rawBatch ?? {}`) por si algún documento viejo/dañado
+  // trae un lote nulo suelto en el arreglo.
   if (Array.isArray(v.incoming)) {
     return {
       size,
       quantity: v.quantity ?? 0,
-      incoming: v.incoming.map((b) => ({
-        id: b.id ?? crypto.randomUUID(),
-        quantity: b.quantity ?? 0,
-        reserved: b.reserved ?? 0,
-        purchaseOrderId: b.purchaseOrderId ?? null,
-        shipmentId: b.shipmentId ?? null,
-        purpose: b.purpose ?? ((b.reserved ?? 0) > 0 ? "Pedido" : "Stock"),
-        linkedOrderId: b.linkedOrderId ?? null
-      }))
+      incoming: v.incoming.map((rawBatch) => {
+        const b = rawBatch ?? {};
+        return {
+          id: b.id ?? crypto.randomUUID(),
+          quantity: b.quantity ?? 0,
+          reserved: b.reserved ?? 0,
+          purchaseOrderId: b.purchaseOrderId ?? null,
+          shipmentId: b.shipmentId ?? null,
+          purpose: b.purpose ?? ((b.reserved ?? 0) > 0 ? "Pedido" : "Stock"),
+          linkedOrderId: b.linkedOrderId ?? null
+        };
+      })
     };
   }
   // Shape viejo: stockStatus + incoming único (o null).
-  const legacyIncoming = v.incoming as LegacyIncoming | null | undefined;
+  const legacyIncoming = (v.incoming ?? null) as LegacyIncoming | null;
   const quantity = v.stockStatus === "En camino" ? 0 : v.quantity ?? 0;
   const incoming: ProductVariant["incoming"] =
     v.stockStatus === "En camino" && legacyIncoming
@@ -79,7 +85,7 @@ function normalizeVariant(v: LegacyVariant): ProductVariant {
 
 function normalizeVariants(data: Record<string, unknown>): ProductVariant[] {
   if (Array.isArray(data.variants) && data.variants.length > 0) {
-    return data.variants.map((v: LegacyVariant) => normalizeVariant(v));
+    return data.variants.map((v: LegacyVariant | null) => normalizeVariant(v));
   }
   return [
     normalizeVariant({
@@ -111,12 +117,12 @@ export function subscribeToProducts(
           sleeve: data.sleeve ?? "",
           version: data.version ?? "",
           personalized: data.personalized ?? false,
-          patches: data.patches ?? [],
-          images: data.images ?? [],
+          patches: Array.isArray(data.patches) ? data.patches : [],
+          images: Array.isArray(data.images) ? data.images : [],
           price: data.price ?? 0,
           providerId: data.providerId ?? "",
           variants: normalizeVariants(data),
-          personalizedUnits: data.personalizedUnits ?? [],
+          personalizedUnits: Array.isArray(data.personalizedUnits) ? data.personalizedUnits : [],
           createdAt: toMillis(data.createdAt),
           updatedAt: toMillis(data.updatedAt)
         };

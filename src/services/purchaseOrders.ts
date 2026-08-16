@@ -42,11 +42,18 @@ export function subscribeToPurchaseOrders(
           providerId: data.providerId ?? "",
           hasDeposit: data.hasDeposit ?? false,
           depositAmount: data.depositAmount ?? 0,
-          lines: (data.lines ?? []).map((l: Record<string, unknown>) => ({
-            ...l,
-            purpose: l.purpose ?? "Stock",
-            linkedOrderId: l.linkedOrderId ?? null
-          })),
+          lines: (Array.isArray(data.lines) ? data.lines : []).map((raw: Record<string, unknown> | null) => {
+            const l = raw ?? {};
+            return {
+              productId: l.productId ?? "",
+              productName: l.productName ?? "",
+              size: l.size ?? "",
+              quantity: l.quantity ?? 0,
+              batchId: l.batchId ?? "",
+              purpose: l.purpose === "Pedido" ? "Pedido" : "Stock",
+              linkedOrderId: l.linkedOrderId ?? null
+            } as PurchaseOrderLine;
+          }),
           notes: data.notes ?? "",
           createdAt: toMillis(data.createdAt),
           updatedAt: toMillis(data.updatedAt)
